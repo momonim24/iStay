@@ -2,6 +2,18 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Authentication setup
+
+Copy `.env.example` to `.env.local` and set the Supabase project URL and publishable/anon key. The mobile app only uses the public key; never add a service-role key.
+
+In Supabase Auth, enable Email provider and Google provider. Add these redirect URLs to Auth URL Configuration:
+
+- `istay://auth/callback`
+- `istay://verify-email`
+- `istay://reset-password`
+
+For Google, create a Google OAuth web client and set its authorized redirect URI to the Supabase Auth callback URL shown in the Supabase provider settings. Use the client credentials in Supabase, not in the mobile app.
+
 ## Get started
 
 1. Install dependencies

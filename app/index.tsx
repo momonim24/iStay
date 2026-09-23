@@ -1,18 +1,29 @@
-import { useEffect } from "react";
 import { Redirect } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { useEffect } from "react";
+import { useAuth } from "../src/auth/useAuth";
 
 SplashScreen.preventAutoHideAsync();
 
 export default function Index() {
+  const { loading, session, user } = useAuth();
+
   useEffect(() => {
-    const prepare = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      await SplashScreen.hideAsync();
-    };
+    if (!loading) SplashScreen.hideAsync();
+  }, [loading]);
 
-    prepare();
-  }, []);
+  if (loading) return null;
 
-  return <Redirect href="../(auth)/welcome" />;
+  if (session && user && !user.email_confirmed_at) {
+    return (
+      <Redirect
+        href={{
+          pathname: "/(auth)/verify-email",
+          params: { email: user.email ?? "" },
+        }}
+      />
+    );
+  }
+
+  return <Redirect href={session ? "/(tenant)/(tabs)" : "/(auth)/welcome"} />;
 }

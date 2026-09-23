@@ -1,15 +1,32 @@
-import { Link } from "expo-router";
-import { StyleSheet, Text, View, Image } from "react-native";
+import { Link, useRouter } from "expo-router";
+import { useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { signInWithGoogle } from "../../src/services/auth.service";
 
 export default function WelcomeScreen() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithGoogle();
+    setLoading(false);
+    if (error) Alert.alert("Google sign-in failed", error.message);
+    else router.replace("/(tenant)/(tabs)");
+  };
+
   return (
     <View style={styles.container}>
-      <Image
-        source={require("../../assets/images/iStay_logo.png")}
-        style={styles.logo}
-        resizeMode="contain"
-      />
       
+
       <Text style={styles.logo}>iStay</Text>
 
       <Text style={styles.title}>Find a place that feels like home.</Text>
@@ -21,6 +38,18 @@ export default function WelcomeScreen() {
       <Link href="../(auth)/login" style={styles.button}>
         Login
       </Link>
+
+      <TouchableOpacity
+        style={styles.googleButton}
+        onPress={handleGoogleLogin}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator />
+        ) : (
+          <Text style={styles.googleButtonText}>Continue with Google</Text>
+        )}
+      </TouchableOpacity>
 
       <Link href="../(auth)/register" style={styles.secondaryButton}>
         Create Account
@@ -67,6 +96,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: 16,
     borderRadius: 10,
+    fontWeight: "600",
+  },
+  googleButton: {
+    borderWidth: 1,
+    borderColor: "#000",
+    padding: 16,
+    borderRadius: 10,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  googleButtonText: {
     fontWeight: "600",
   },
 });
