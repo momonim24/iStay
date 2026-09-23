@@ -1,10 +1,16 @@
 import { Link } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Image } from "react-native";
 
 export default function WelcomeScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.logo}>UNISTAY</Text>
+      <Image
+        source={require("../../assets/images/iStay_logo.png")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
+      
+      <Text style={styles.logo}>iStay</Text>
 
       <Text style={styles.title}>Find a place that feels like home.</Text>
 
