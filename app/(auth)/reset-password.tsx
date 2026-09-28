@@ -1,102 +1,102 @@
-import * as Linking from "expo-linking";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { validatePassword } from "../../src/auth/auth-validation";
+import { useAuth } from "../../src/auth/useAuth";
 import {
-    Alert,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import {
-    setSessionFromUrl,
-    updatePassword,
-} from "../../src/services/auth.service";
+  AuthButton,
+  AuthInput,
+  AuthLink,
+  AuthNotice,
+  AuthScreen,
+} from "../../src/components/auth/AuthForm";
+import { useAuthAction } from "../../src/hooks/use-auth-action";
+import { updatePassword } from "../../src/services/auth.service";
 
 export default function ResetPasswordScreen() {
-  const router = useRouter();
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const acceptUrl = (url: string) =>
-      setSessionFromUrl(url)
-        .then(() => setReady(true))
-        .catch(() => setReady(false));
-    Linking.getInitialURL().then((url) => {
-      if (url) acceptUrl(url);
-      else setReady(true);
-    });
-    const subscription = Linking.addEventListener("url", ({ url }) =>
-      acceptUrl(url),
-    );
-    return () => subscription.remove();
-  }, []);
-
-  const handleUpdate = async () => {
+  const [confirmation, setConfirmation] = useState("");
+  const { session, recovering, linkError, completeRecovery, signOut } =
+    useAuth();
+  const action = useAuthAction();
+  const ready = Boolean(session && recovering && !linkError);
+  const update = () => {
     if (!ready) return;
-    if (password.length < 6 || password !== confirmPassword) {
-      Alert.alert(
-        "Check your password",
-        "Use at least 6 characters and enter matching passwords.",
-      );
+    const invalid = validatePassword(password, confirmation);
+    if (invalid) {
+      action.setError(invalid);
       return;
     }
-    const { error } = await updatePassword(password);
-    if (error) Alert.alert("Unable to update password", error.message);
-    else {
-      Alert.alert("Password updated", "You can now continue to iStay.", [
-        { text: "Continue", onPress: () => router.replace("/(tenant)/(tabs)") },
-      ]);
-    }
+    void action.run(async () => {
+      const { error } = await updatePassword(password);
+      if (error) throw error;
+      setPassword("");
+      setConfirmation("");
+      await completeRecovery();
+    });
   };
-
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create a new password</Text>
-      <TextInput
-        placeholder="New password"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        style={styles.input}
-      />
-      <TextInput
-        placeholder="Confirm password"
-        secureTextEntry
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        style={styles.input}
-      />
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleUpdate}
-        disabled={!ready}
-      >
-        <Text style={styles.buttonText}>Update Password</Text>
-      </TouchableOpacity>
-    </View>
+    <AuthScreen
+      title="Create a new password"
+      subtitle="Use at least 8 characters, including letters and numbers."
+    >
+      {!ready ? (
+        <>
+          <AuthNotice
+            error={
+              linkError ||
+              "Open a valid password-reset link from your email to continue. If it expired, request a new one on this device."
+            }
+          />
+          {session && recovering ? (
+            <AuthButton
+              title="Cancel and return to Login"
+              onPress={() => void action.run(signOut)}
+              busy={action.busy}
+            />
+          ) : (
+            <AuthLink href="/(auth)/forgot-password">
+              Request a new reset link
+            </AuthLink>
+          )}
+        </>
+      ) : (
+        <>
+          <AuthInput
+            label="New password"
+            password
+            value={password}
+            onChangeText={setPassword}
+            autoComplete="new-password"
+            textContentType="newPassword"
+            editable={!action.busy}
+          />
+          <AuthInput
+            label="Confirm new password"
+            password
+            value={confirmation}
+            onChangeText={setConfirmation}
+            autoComplete="new-password"
+            textContentType="newPassword"
+            editable={!action.busy}
+            returnKeyType="go"
+            onSubmitEditing={update}
+          />
+          <AuthNotice error={action.error} />
+          <AuthButton
+            title="Update password and continue"
+            busy={action.busy}
+            onPress={update}
+          />
+          <AuthButton
+            title="Cancel and sign out"
+            secondary
+            disabled={action.busy}
+            onPress={() => void action.run(signOut)}
+          />
+        </>
+      )}
+      {!session ? (
+        <AuthLink href="/(auth)/login">Back to Login</AuthLink>
+      ) : null}
+    </AuthScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24 },
-  title: { fontSize: 30, fontWeight: "700", marginBottom: 24 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  button: {
-    backgroundColor: "#000",
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonText: { color: "#fff", fontWeight: "600" },
-});

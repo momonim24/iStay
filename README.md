@@ -4,6 +4,8 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 ## Authentication setup
 
+See [the complete authentication setup and testing guide](docs/AUTHENTICATION.md) for the implementation report, exact Supabase/Google dashboard steps, native build commands, and acceptance tests. The app uses real Supabase Auth with PKCE, protected routes, email confirmation, Google sign-in, password recovery, persistent sessions, and logout.
+
 Copy `.env.example` to `.env.local` and set the Supabase project URL and publishable/anon key. The mobile app only uses the public key; never add a service-role key.
 
 In Supabase Auth, enable Email provider and Google provider. Add these redirect URLs to Auth URL Configuration:

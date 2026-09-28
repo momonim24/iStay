@@ -1,97 +1,69 @@
-import { Link } from "expo-router";
 import { useState } from "react";
+import { normalizeEmail, validateEmail } from "../../src/auth/auth-validation";
+import { useAuth } from "../../src/auth/useAuth";
 import {
-    Alert,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
+  AuthButton,
+  AuthInput,
+  AuthLink,
+  AuthNotice,
+  AuthScreen,
+} from "../../src/components/auth/AuthForm";
+import { useAuthAction } from "../../src/hooks/use-auth-action";
+import { useAuthCooldown } from "../../src/hooks/use-auth-cooldown";
+import { authConfigured } from "../../src/lib/supabase";
 import { requestPasswordReset } from "../../src/services/auth.service";
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-
-  const handleReset = async () => {
-    if (!email.trim()) {
-      Alert.alert(
-        "Enter your email",
-        "We need your email to send a reset link.",
-      );
+  const action = useAuthAction();
+  const cooldown = useAuthCooldown("reset:" + normalizeEmail(email));
+  const { clearLinkError } = useAuth();
+  const send = () => {
+    const invalid = validateEmail(email);
+    if (invalid) {
+      action.setError(invalid);
       return;
     }
-    const { error } = await requestPasswordReset(email.trim());
-    if (error) Alert.alert("Unable to send reset link", error.message);
-    else setSent(true);
+    if (cooldown.seconds) return;
+    void action.run(async () => {
+      clearLinkError();
+      cooldown.start();
+      const { error } = await requestPasswordReset(email);
+      if (error) throw error;
+      action.setMessage(
+        "If an account uses this email, you'll receive a reset link. Open the latest link on this device. Remember to check spam or junk.",
+      );
+    });
   };
-
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Forgot Password?</Text>
-
-      <Text style={styles.description}>
-        Enter your email address and we'll help you recover your account.
-      </Text>
-
-      <TextInput
-        placeholder="Email"
+    <AuthScreen
+      title="Forgot your password?"
+      subtitle="Enter your email and we'll help you recover your account."
+    >
+      <AuthInput
+        label="Email address"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
-        style={styles.input}
+        autoComplete="email"
+        textContentType="emailAddress"
+        editable={!action.busy}
+        returnKeyType="send"
+        onSubmitEditing={send}
       />
-
-      <TouchableOpacity style={styles.button} onPress={handleReset}>
-        <Text style={styles.buttonText}>
-          {sent ? "Reset Link Sent" : "Send Reset Link"}
-        </Text>
-      </TouchableOpacity>
-
-      <Link href="../(auth)/login" style={styles.link}>
-        Back to Login
-      </Link>
-    </View>
+      <AuthNotice error={action.error} message={action.message} />
+      <AuthButton
+        title={
+          cooldown.seconds
+            ? `Send again in ${cooldown.seconds}s`
+            : "Send reset link"
+        }
+        busy={action.busy}
+        disabled={!authConfigured || cooldown.seconds > 0}
+        onPress={send}
+      />
+      <AuthLink href="/(auth)/login">Back to Login</AuthLink>
+    </AuthScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-  description: {
-    color: "#666",
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  button: {
-    backgroundColor: "#000",
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  link: {
-    textAlign: "center",
-    marginTop: 20,
-  },
-});

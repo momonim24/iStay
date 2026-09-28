@@ -1,163 +1,112 @@
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    Image,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
+  normalizeEmail,
+  validateEmail,
+  validatePassword,
+} from "../../src/auth/auth-validation";
+import { useAuth } from "../../src/auth/useAuth";
+import {
+  AuthButton,
+  AuthDivider,
+  AuthInput,
+  AuthLink,
+  AuthNotice,
+  AuthScreen,
+} from "../../src/components/auth/AuthForm";
+import { GoogleAuthButton } from "../../src/components/auth/GoogleAuthButton";
+import { useAuthAction } from "../../src/hooks/use-auth-action";
+import { useAuthCooldown } from "../../src/hooks/use-auth-cooldown";
+import { authConfigured } from "../../src/lib/supabase";
 import { signUpWithEmail } from "../../src/services/auth.service";
 
 export default function RegisterScreen() {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const router = useRouter();
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  const handleRegister = async () => {
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password) {
-      Alert.alert(
-        "Missing details",
-        "Complete all fields to create your account.",
-      );
+  const [confirmation, setConfirmation] = useState("");
+  const action = useAuthAction();
+  const cooldown = useAuthCooldown("verify:" + normalizeEmail(email));
+  const { clearLinkError } = useAuth();
+  const register = () => {
+    const invalid = !fullName.trim()
+      ? "Enter your full name."
+      : validateEmail(email) || validatePassword(password, confirmation);
+    if (invalid) {
+      action.setError(invalid);
       return;
     }
-    if (password.length < 6) {
-      Alert.alert("Password is too short", "Use at least 6 characters.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      Alert.alert("Passwords do not match", "Enter the same password twice.");
-      return;
-    }
-
-    setLoading(true);
-    const { data, error } = await signUpWithEmail(
-      email.trim(),
-      password,
-      firstName.trim(),
-      lastName.trim(),
-    );
-    setLoading(false);
-    if (error) {
-      Alert.alert("Unable to create account", error.message);
-      return;
-    }
-    if (data.session) router.replace("/(tenant)/(tabs)");
-    else
-      router.replace({
-        pathname: "/(auth)/verify-email",
-        params: { email: email.trim() },
-      });
+    void action.run(async () => {
+      clearLinkError();
+      const { data, error } = await signUpWithEmail(email, password, fullName);
+      if (error) throw error;
+      setPassword("");
+      setConfirmation("");
+      if (!data.session) {
+        cooldown.start();
+        router.replace({
+          pathname: "/(auth)/verify-email",
+          params: { email: normalizeEmail(email), sent: "1" },
+        });
+      }
+    });
   };
-
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../../assets/images/iStay_logo.png")}
-
-        style={styles.logo}
-        resizeMode="contain"
+    <AuthScreen
+      title="Create your iStay account"
+      subtitle="A place that fits your life starts here."
+    >
+      <AuthInput
+        label="Full name"
+        value={fullName}
+        onChangeText={setFullName}
+        autoComplete="name"
+        textContentType="name"
+        autoCapitalize="words"
+        editable={!action.busy}
       />
-      <Text style={styles.title}>Create Account</Text>
-
-      <TextInput
-        placeholder="First Name"
-        value={firstName}
-        onChangeText={setFirstName}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Surname"
-        value={lastName}
-        onChangeText={setLastName}
-        style={styles.input}
-      />
-
-      <TextInput
-        placeholder="Email"
+      <AuthInput
+        label="Email address"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
-        style={styles.input}
+        autoComplete="email"
+        textContentType="emailAddress"
+        editable={!action.busy}
       />
-
-      <TextInput
-        placeholder="Password"
+      <AuthInput
+        label="Password"
+        password
+        placeholder="At least 8 characters, letters and numbers"
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
-        style={styles.input}
+        autoComplete="new-password"
+        textContentType="newPassword"
+        editable={!action.busy}
       />
-
-      <TextInput
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-        style={styles.input}
+      <AuthInput
+        label="Confirm password"
+        password
+        value={confirmation}
+        onChangeText={setConfirmation}
+        autoComplete="new-password"
+        textContentType="newPassword"
+        editable={!action.busy}
+        returnKeyType="go"
+        onSubmitEditing={register}
       />
-
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleRegister}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>Create Account</Text>
-      </TouchableOpacity>
-
-      <Link href="../(auth)/login" style={styles.link}>
-        Already have an account? Login
-      </Link>
-    </View>
+      <AuthNotice error={action.error} />
+      <AuthButton
+        title="Create Account"
+        busy={action.busy}
+        disabled={!authConfigured}
+        onPress={register}
+      />
+      <AuthDivider />
+      <GoogleAuthButton busy={action.busy} run={action.run} />
+      <AuthLink href="/(auth)/login">Already have an account? Login</AuthLink>
+    </AuthScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "700",
-    marginBottom: 24,
-  },
-  logo: {
-    width: 90,
-    height: 90,
-    alignSelf: "center",
-    marginBottom: 24,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  button: {
-    backgroundColor: "#000",
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  link: {
-    textAlign: "center",
-    marginTop: 20,
-  },
-});

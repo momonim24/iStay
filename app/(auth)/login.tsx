@@ -1,182 +1,87 @@
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useState } from "react";
+import { authErrorCode } from "../../src/auth/auth-errors";
+import { normalizeEmail, validateEmail } from "../../src/auth/auth-validation";
+import { useAuth } from "../../src/auth/useAuth";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import {
-    signInWithEmail,
-    signInWithGoogle,
-} from "../../src/services/auth.service";
+  AuthButton,
+  AuthDivider,
+  AuthInput,
+  AuthLink,
+  AuthNotice,
+  AuthScreen,
+} from "../../src/components/auth/AuthForm";
+import { GoogleAuthButton } from "../../src/components/auth/GoogleAuthButton";
+import { useAuthAction } from "../../src/hooks/use-auth-action";
+import { authConfigured } from "../../src/lib/supabase";
+import { signInWithEmail } from "../../src/services/auth.service";
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async () => {
-    if (!email.trim() || !password) {
-      Alert.alert("Missing details", "Enter your email and password.");
+  const action = useAuthAction();
+  const { clearLinkError } = useAuth();
+  const login = () => {
+    const invalid =
+      validateEmail(email) || (!password ? "Enter your password." : null);
+    if (invalid) {
+      action.setError(invalid);
       return;
     }
-
-    setLoading(true);
-    const { data, error } = await signInWithEmail(email.trim(), password);
-    setLoading(false);
-
-    if (error) {
-      if (error.message.toLowerCase().includes("confirm")) {
+    void action.run(async () => {
+      clearLinkError();
+      const { data, error } = await signInWithEmail(email, password);
+      if (
+        authErrorCode(error) === "email_not_confirmed" ||
+        (!error && data.user && !data.user.email_confirmed_at)
+      ) {
         router.push({
           pathname: "/(auth)/verify-email",
-          params: { email: email.trim() },
+          params: { email: normalizeEmail(email) },
         });
         return;
       }
-      Alert.alert("Unable to log in", error.message);
-      return;
-    }
-
-    if (data.user && !data.user.email_confirmed_at) {
-      router.push({
-        pathname: "/(auth)/verify-email",
-        params: { email: email.trim() },
-      });
-      return;
-    }
-
-    router.replace("/(tenant)/(tabs)");
+      if (error) throw error;
+      // The protected root navigator responds to Supabase's SIGNED_IN event.
+    });
   };
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    const { error } = await signInWithGoogle();
-    setLoading(false);
-    if (error) Alert.alert("Google sign-in failed", error.message);
-    else router.replace("/(tenant)/(tabs)");
-  };
-
   return (
-    <View style={styles.container}>
-      {/* 1. Logo / Hero Image */}
-      <Image
-        // Option A: Local asset (adjust path relative to your file)
-        source={require("../../assets/images/iStay_logo.png")}
-
-        style={styles.logo}
-        resizeMode="contain"
-      />
-
-      <Text style={styles.title}>Welcome Back</Text>
-
-      <TextInput
-        placeholder="Email"
+    <AuthScreen title="Welcome back" subtitle="Log in to find your next home.">
+      <AuthInput
+        label="Email address"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
-        style={styles.input}
+        autoComplete="email"
+        textContentType="emailAddress"
+        editable={!action.busy}
       />
-
-      <TextInput
-        placeholder="Password"
+      <AuthInput
+        label="Password"
+        password
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
-        style={styles.input}
+        autoComplete="current-password"
+        textContentType="password"
+        editable={!action.busy}
+        returnKeyType="go"
+        onSubmitEditing={login}
       />
-
-      {/* TouchableOpacity gives standard press feedback */}
-      <TouchableOpacity
-        style={styles.button}
-        activeOpacity={0.8}
-        onPress={handleLogin}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Login</Text>
-        )}
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.googleButton}
-        onPress={handleGoogleLogin}
-        disabled={loading}
-      >
-        <Text style={styles.googleButtonText}>Continue with Google</Text>
-      </TouchableOpacity>
-
-      {/* Since you're inside (auth), relative paths don't need ../(auth) */}
-      <Link href="/(auth)/forgot-password" style={styles.link}>
-        Forgot Password?
-      </Link>
-
-      <Link href="/(auth)/register" style={styles.link}>
-        Don't have an account? Register
-      </Link>
-    </View>
+      <AuthNotice error={action.error} />
+      <AuthButton
+        title="Login"
+        busy={action.busy}
+        disabled={!authConfigured}
+        onPress={login}
+      />
+      <AuthLink href="/(auth)/forgot-password">Forgot Password?</AuthLink>
+      <AuthDivider />
+      <GoogleAuthButton busy={action.busy} run={action.run} />
+      <AuthLink href="/(auth)/register">
+        Don't have an account? Create Account
+      </AuthLink>
+    </AuthScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: "#fff",
-  },
-  logo: {
-    width: 90,
-    height: 90,
-    alignSelf: "center",
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginBottom: 24,
-    textAlign: "center",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-  },
-  button: {
-    backgroundColor: "#000",
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  googleButton: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  googleButtonText: {
-    color: "#111",
-    fontWeight: "600",
-  },
-  link: {
-    textAlign: "center",
-    marginTop: 20,
-  },
-});
