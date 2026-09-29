@@ -10,6 +10,8 @@ export default function TenantLayout() {
       <Stack.Screen name="smart-match" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="messages" />
+
+      <Stack.Screen name="become-owner" />
     </Stack>
   );
 }
