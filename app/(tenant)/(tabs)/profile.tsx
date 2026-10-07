@@ -1,15 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../../src/auth/useAuth";
 import { AuthButton, AuthNotice } from "../../../src/components/auth/AuthForm";
 import { useAuthAction } from "../../../src/hooks/use-auth-action";
@@ -23,31 +17,31 @@ export default function ProfileScreen() {
   const [isOwner, setIsOwner] = useState(false);
 
   useFocusEffect(
-  useCallback(() => {
-    if (!user) return;
+    useCallback(() => {
+      if (!user) return;
 
-    const loadProfile = async () => {
-      const { data, error } = await requireSupabase()
-        .from("profiles")
-        .select("full_name, is_owner")
-        .eq("id", user.id)
-        .single();
+      const loadProfile = async () => {
+        const { data, error } = await requireSupabase()
+          .from("profiles")
+          .select("full_name, is_owner")
+          .eq("id", user.id)
+          .single();
 
-      if (error) {
-        console.error("Failed to load profile:", error);
-        return;
-      }
+        if (error) {
+          console.error("Failed to load profile:", error);
+          return;
+        }
 
-      setFullName(data.full_name ?? "");
-      setIsOwner(data.is_owner ?? false);
-    };
+        setFullName(data.full_name ?? "");
+        setIsOwner(data.is_owner ?? false);
+      };
 
-    void loadProfile();
-  }, [user]),
-);
+      void loadProfile();
+    }, [user]),
+  );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -62,9 +56,7 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>
-              {fullName || "iStay Member"}
-            </Text>
+            <Text style={styles.name}>{fullName || "iStay Member"}</Text>
 
             <Text style={styles.email}>{user?.email}</Text>
           </View>
@@ -101,11 +93,7 @@ export default function ProfileScreen() {
             </Text>
           </View>
 
-          <Ionicons
-            name="chevron-forward"
-            size={22}
-            color="#64748B"
-          />
+          <Ionicons name="chevron-forward" size={22} color="#64748B" />
         </Pressable>
 
         {/* ACCOUNT */}
@@ -113,34 +101,22 @@ export default function ProfileScreen() {
 
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Ionicons
-              name="person-outline"
-              size={21}
-              color="#64748B"
-            />
+            <Ionicons name="person-outline" size={21} color="#64748B" />
 
             <View>
               <Text style={styles.infoLabel}>Name</Text>
-              <Text style={styles.infoValue}>
-                {fullName || "iStay Member"}
-              </Text>
+              <Text style={styles.infoValue}>{fullName || "iStay Member"}</Text>
             </View>
           </View>
 
           <View style={styles.divider} />
 
           <View style={styles.infoRow}>
-            <Ionicons
-              name="mail-outline"
-              size={21}
-              color="#64748B"
-            />
+            <Ionicons name="mail-outline" size={21} color="#64748B" />
 
             <View>
               <Text style={styles.infoLabel}>Email</Text>
-              <Text style={styles.infoValue}>
-                {user?.email ?? ""}
-              </Text>
+              <Text style={styles.infoValue}>{user?.email ?? ""}</Text>
             </View>
           </View>
         </View>

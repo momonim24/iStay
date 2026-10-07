@@ -5,13 +5,13 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../src/auth/useAuth";
 import { requireSupabase } from "../../src/lib/supabase";
 
@@ -41,7 +41,8 @@ export default function OwnerPropertiesScreen() {
 
         const { data, error } = await requireSupabase()
           .from("properties")
-          .select(`
+          .select(
+            `
             id,
             name,
             city,
@@ -53,7 +54,8 @@ export default function OwnerPropertiesScreen() {
               image_url,
               is_cover
             )
-          `)
+          `,
+          )
           .eq("owner_id", user.id)
           .order("created_at", { ascending: false });
 
@@ -66,9 +68,7 @@ export default function OwnerPropertiesScreen() {
         const formatted: Property[] = (data ?? []).map((property) => {
           const images = property.property_images ?? [];
 
-          const cover =
-            images.find((image) => image.is_cover) ??
-            images[0];
+          const cover = images.find((image) => image.is_cover) ?? images[0];
 
           return {
             id: property.id,
@@ -91,7 +91,10 @@ export default function OwnerPropertiesScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom", "left", "right"]}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
@@ -99,20 +102,14 @@ export default function OwnerPropertiesScreen() {
         {/* HEADER */}
 
         <View style={styles.header}>
-          <Pressable
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={23}
-              color="#0F172A"
-            />
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={23} color="#0F172A" />
           </Pressable>
 
           <Pressable
             style={styles.addTopButton}
             onPress={() => {
+              router.push("/(owner)/property/add");
               // Add Property screen comes next.
             }}
           >
@@ -125,6 +122,10 @@ export default function OwnerPropertiesScreen() {
         <Text style={styles.subtitle}>
           Manage your rental properties on iStay.
         </Text>
+
+        <Pressable onPress={() => router.push("/(owner)/(tabs)/applications")} style={{ marginBottom: 20 }}>
+          <Text style={styles.secondaryButtonText}>View Rental Applications</Text>
+        </Pressable>
 
         {/* LOADING */}
 
@@ -139,20 +140,14 @@ export default function OwnerPropertiesScreen() {
         {!loading && properties.length === 0 && (
           <View style={styles.emptyCard}>
             <View style={styles.emptyIcon}>
-              <Ionicons
-                name="business-outline"
-                size={36}
-                color="#2563EB"
-              />
+              <Ionicons name="business-outline" size={36} color="#2563EB" />
             </View>
 
-            <Text style={styles.emptyTitle}>
-              No properties yet
-            </Text>
+            <Text style={styles.emptyTitle}>No properties yet</Text>
 
             <Text style={styles.emptyDescription}>
-              Add your first rental property to start receiving
-              applications from renters.
+              Add your first rental property to start receiving applications
+              from renters.
             </Text>
           </View>
         )}
@@ -161,22 +156,14 @@ export default function OwnerPropertiesScreen() {
 
         {!loading &&
           properties.map((property) => (
-            <View
-              key={property.id}
-              style={styles.propertyCard}
-            >
+            <View key={property.id} style={styles.propertyCard}>
               {property.image ? (
                 <Image
                   source={{ uri: property.image }}
                   style={styles.propertyImage}
                 />
               ) : (
-                <View
-                  style={[
-                    styles.propertyImage,
-                    styles.noImage,
-                  ]}
-                >
+                <View style={[styles.propertyImage, styles.noImage]}>
                   <Image
                     source={require("../../assets/images/logo_gray.png")}
                     style={styles.placeholderLogo}
@@ -187,10 +174,7 @@ export default function OwnerPropertiesScreen() {
 
               <View style={styles.propertyContent}>
                 <View style={styles.titleRow}>
-                  <Text
-                    style={styles.propertyName}
-                    numberOfLines={1}
-                  >
+                  <Text style={styles.propertyName} numberOfLines={1}>
                     {property.name}
                   </Text>
 
@@ -204,11 +188,7 @@ export default function OwnerPropertiesScreen() {
                 </View>
 
                 <View style={styles.locationRow}>
-                  <Ionicons
-                    name="location-outline"
-                    size={14}
-                    color="#64748B"
-                  />
+                  <Ionicons name="location-outline" size={14} color="#64748B" />
 
                   <Text style={styles.location}>
                     {property.city}, {property.province}
@@ -217,10 +197,7 @@ export default function OwnerPropertiesScreen() {
 
                 <Text style={styles.price}>
                   ₱{property.monthly_rent.toLocaleString()}
-                  <Text style={styles.perMonth}>
-                    {" "}
-                    / month
-                  </Text>
+                  <Text style={styles.perMonth}> / month</Text>
                 </Text>
 
                 <View style={styles.statusRow}>
@@ -233,27 +210,25 @@ export default function OwnerPropertiesScreen() {
 
                 <View style={styles.actions}>
                   <Pressable style={styles.secondaryButton}>
-                    <Ionicons
-                      name="create-outline"
-                      size={17}
-                      color="#1D4ED8"
-                    />
+                    <Ionicons name="create-outline" size={17} color="#1D4ED8" />
 
-                    <Text style={styles.secondaryButtonText}>
-                      Edit
-                    </Text>
+                    <Text style={styles.secondaryButtonText}>Edit</Text>
                   </Pressable>
 
-                  <Pressable style={styles.primaryButton}>
+                  <Pressable
+                    style={styles.primaryButton}
+                    onPress={() => router.push({
+                      pathname: "/(owner)/property/[id]",
+                      params: { id: property.id },
+                    })}
+                  >
                     <Ionicons
                       name="settings-outline"
                       size={17}
                       color="#FFFFFF"
                     />
 
-                    <Text style={styles.primaryButtonText}>
-                      Manage
-                    </Text>
+                    <Text style={styles.primaryButtonText}>Manage</Text>
                   </Pressable>
                 </View>
               </View>
@@ -266,18 +241,13 @@ export default function OwnerPropertiesScreen() {
           <Pressable
             style={styles.addPropertyButton}
             onPress={() => {
+              router.push("/(owner)/property/add");
               // We'll connect this next.
             }}
           >
-            <Ionicons
-              name="add-circle-outline"
-              size={21}
-              color="#FFFFFF"
-            />
+            <Ionicons name="add-circle-outline" size={21} color="#FFFFFF" />
 
-            <Text style={styles.addPropertyText}>
-              Add Property
-            </Text>
+            <Text style={styles.addPropertyText}>Add Property</Text>
           </Pressable>
         )}
       </ScrollView>

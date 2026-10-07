@@ -1,26 +1,97 @@
-import { StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
+import { ScrollView, StyleSheet, Text } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  DiscoveryState,
+  ListingCard,
+} from "../../../src/components/tenant-listings";
+import {
+  fetchTenantFavorites,
+  TenantProperty,
+} from "../../../src/services/tenant-discovery.service";
+import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
+import { useAuth } from "../../../src/auth/useAuth";
 
 export default function FavoritesScreen() {
+  const { user } = useAuth();
+  const [properties, setProperties] = useState<TenantProperty[]>([]),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [revision, setRevision] = useState(0);
+  const retry = () => setRevision((r) => r + 1);
+  const saved = useTenantFavorites(retry);
+  useFocusEffect(
+    useCallback(() => {
+      const controller = new AbortController();
+      setProperties([]);
+      setLoading(true);
+      setError("");
+      void fetchTenantFavorites(controller.signal)
+        .then((rows) => {
+          if (!controller.signal.aborted) setProperties(rows);
+        })
+        .catch((e: unknown) => {
+          if (!controller.signal.aborted)
+            setError(
+              e instanceof Error ? e.message : "Unable to load favorites.",
+            );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+      return () => controller.abort();
+    }, [user?.id, revision]),
+  );
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Favorites</Text>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Favorites</Text>
 
-      <Text style={styles.placeholder}>
-        Your saved accommodations will appear here.
-      </Text>
-    </View>
+        <DiscoveryState
+          loading={loading}
+          error={error}
+          empty={!properties.length}
+          onRetry={retry}
+        />
+        {!!saved.error && (
+          <DiscoveryState
+            loading={false}
+            error={saved.error}
+            empty={false}
+            onRetry={saved.retry}
+          />
+        )}
+        {properties.map((property) => (
+          <ListingCard
+            key={property.id}
+            property={property}
+            favorite={saved.ids.includes(property.id)}
+            busy={!saved.ready || saved.busy.includes(property.id)}
+            onFavorite={() => {
+              void saved.toggle(property.id);
+            }}
+          />
+        ))}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  container: {
     padding: 24,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
     marginTop: 40,
+    marginBottom: 20,
   },
   placeholder: {
     textAlign: "center",
