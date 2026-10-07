@@ -13,7 +13,7 @@ import {
 import { useAuth } from "../../../src/auth/useAuth";
 import { AuthButton, AuthNotice } from "../../../src/components/auth/AuthForm";
 import { useAuthAction } from "../../../src/hooks/use-auth-action";
-import { requireSupabase } from "../../../src/lib/supabase";
+import { authConfigured, requireSupabase } from "../../../src/lib/supabase";
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -23,28 +23,28 @@ export default function ProfileScreen() {
   const [isOwner, setIsOwner] = useState(false);
 
   useFocusEffect(
-  useCallback(() => {
-    if (!user) return;
+    useCallback(() => {
+      if (!user) return;
 
-    const loadProfile = async () => {
-      const { data, error } = await requireSupabase()
-        .from("profiles")
-        .select("full_name, is_owner")
-        .eq("id", user.id)
-        .single();
+      const loadProfile = async () => {
+        const { data, error } = await requireSupabase()
+          .from("profiles")
+          .select("full_name, is_owner")
+          .eq("id", user.id)
+          .single();
 
-      if (error) {
-        console.error("Failed to load profile:", error);
-        return;
-      }
+        if (error) {
+          console.error("Failed to load profile:", error);
+          return;
+        }
 
-      setFullName(data.full_name ?? "");
-      setIsOwner(data.is_owner ?? false);
-    };
+        setFullName(data.full_name ?? "");
+        setIsOwner(data.is_owner ?? false);
+      };
 
-    void loadProfile();
-  }, [user]),
-);
+      void loadProfile();
+    }, [user]),
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -62,9 +62,7 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>
-              {fullName || "iStay Member"}
-            </Text>
+            <Text style={styles.name}>{fullName || "iStay Member"}</Text>
 
             <Text style={styles.email}>{user?.email}</Text>
           </View>
@@ -74,38 +72,34 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Property Management</Text>
 
         <Pressable
-          style={styles.ownerCard}
+          style={styles.listingCard}
           onPress={() =>
             isOwner
-              ? router.push("/(owner)/properties")
+              ? router.push("/(tenant)/properties")
               : router.push("/(tenant)/become-owner")
           }
         >
-          <View style={styles.ownerIcon}>
+          <View style={styles.listingIcon}>
             <Ionicons
               name={isOwner ? "business-outline" : "home-outline"}
-              size={27}
+              size={26}
               color="#1D4ED8"
             />
           </View>
 
-          <View style={styles.ownerContent}>
-            <Text style={styles.ownerTitle}>
+          <View style={styles.listingContent}>
+            <Text style={styles.listingTitle}>
               {isOwner ? "Your Listings" : "List Your Property"}
             </Text>
 
-            <Text style={styles.ownerDescription}>
+            <Text style={styles.listingDescription}>
               {isOwner
                 ? "View and manage your rental properties."
-                : "Become a property owner on iStay and start listing your rentals."}
+                : "List your property and reach renters across Cavite."}
             </Text>
           </View>
 
-          <Ionicons
-            name="chevron-forward"
-            size={22}
-            color="#64748B"
-          />
+          <Ionicons name="chevron-forward" size={22} color="#64748B" />
         </Pressable>
 
         {/* ACCOUNT */}
@@ -113,34 +107,22 @@ export default function ProfileScreen() {
 
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Ionicons
-              name="person-outline"
-              size={21}
-              color="#64748B"
-            />
+            <Ionicons name="person-outline" size={21} color="#64748B" />
 
             <View>
               <Text style={styles.infoLabel}>Name</Text>
-              <Text style={styles.infoValue}>
-                {fullName || "iStay Member"}
-              </Text>
+              <Text style={styles.infoValue}>{fullName || "iStay Member"}</Text>
             </View>
           </View>
 
           <View style={styles.divider} />
 
           <View style={styles.infoRow}>
-            <Ionicons
-              name="mail-outline"
-              size={21}
-              color="#64748B"
-            />
+            <Ionicons name="mail-outline" size={21} color="#64748B" />
 
             <View>
               <Text style={styles.infoLabel}>Email</Text>
-              <Text style={styles.infoValue}>
-                {user?.email ?? ""}
-              </Text>
+              <Text style={styles.infoValue}>{user?.email ?? ""}</Text>
             </View>
           </View>
         </View>
@@ -155,6 +137,16 @@ export default function ProfileScreen() {
           />
         </View>
       </ScrollView>
+      {isOwner && (
+        <Pressable
+          style={styles.modeSwitchButton}
+          onPress={() => router.replace("/(owner)/(tabs)")}
+        >
+          <Ionicons name="swap-horizontal" size={19} color="#FFFFFF" />
+
+          <Text style={styles.modeSwitchText}>Switch to Landlord</Text>
+        </Pressable>
+      )}
     </SafeAreaView>
   );
 }
@@ -300,4 +292,87 @@ const styles = StyleSheet.create({
   logout: {
     marginTop: 10,
   },
+
+  propertyTitle: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  propertyDescription: {
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+
+  modeSwitchText: {
+  color: "#FFFFFF",
+  fontSize: 13,
+  fontWeight: "700",
+},
+
+  modeSwitchButton: {
+  position: "absolute",
+  bottom: authConfigured ? 20 : 40,
+  alignSelf: "center",
+
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+
+  backgroundColor: "#1D4ED8",
+  paddingHorizontal: 22,
+  paddingVertical: 14,
+  borderRadius: 30,
+
+  shadowColor: "#000",
+  shadowOffset: {
+    width: 0,
+    height: 4,
+  },
+  shadowOpacity: 0.2,
+  shadowRadius: 8,
+  elevation: 8,
+  zIndex: 100,
+},
+
+  listingCard: {
+  flexDirection: "row",
+  alignItems: "center",
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#DBEAFE",
+  borderRadius: 18,
+  padding: 16,
+  marginBottom: 28,
+},
+
+listingIcon: {
+  width: 52,
+  height: 52,
+  borderRadius: 16,
+  backgroundColor: "#EFF6FF",
+  alignItems: "center",
+  justifyContent: "center",
+  marginRight: 14,
+},
+
+listingContent: {
+  flex: 1,
+},
+
+listingTitle: {
+  color: "#0F172A",
+  fontSize: 15,
+  fontWeight: "700",
+},
+
+listingDescription: {
+  color: "#64748B",
+  fontSize: 12,
+  lineHeight: 17,
+  marginTop: 3,
+},
 });
