@@ -2,18 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "../../src/auth/useAuth";
 import { requireSupabase } from "../../src/lib/supabase";
@@ -63,18 +63,12 @@ export default function BecomeOwnerScreen() {
     }
 
     if (!phone.trim()) {
-      Alert.alert(
-        "Missing information",
-        "Please enter your contact number.",
-      );
+      Alert.alert("Missing information", "Please enter your contact number.");
       return;
     }
 
     if (!email.trim()) {
-      Alert.alert(
-        "Missing information",
-        "Please enter your contact email.",
-      );
+      Alert.alert("Missing information", "Please enter your contact email.");
       return;
     }
 
@@ -148,7 +142,10 @@ export default function BecomeOwnerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom", "left", "right"]}
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -160,30 +157,19 @@ export default function BecomeOwnerScreen() {
         >
           {/* HEADER */}
 
-          <Pressable
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons
-              name="arrow-back"
-              size={23}
-              color="#0F172A"
-            />
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={23} color="#0F172A" />
           </Pressable>
 
           <View style={styles.iconBox}>
-            <Ionicons
-              name="business-outline"
-              size={31}
-              color="#1D4ED8"
-            />
+            <Ionicons name="business-outline" size={31} color="#1D4ED8" />
           </View>
 
           <Text style={styles.title}>List your property</Text>
 
           <Text style={styles.subtitle}>
-            Set up your property owner profile to start listing and
-            managing rental properties on iStay.
+            Set up your property owner profile to start listing and managing
+            rental properties on iStay.
           </Text>
 
           {/* FORM */}
@@ -233,8 +219,8 @@ export default function BecomeOwnerScreen() {
             />
 
             <Text style={styles.infoText}>
-              Your contact information may be used for property
-              management and communication with renters.
+              Your contact information may be used for property management and
+              communication with renters.
             </Text>
           </View>
 
@@ -244,18 +230,9 @@ export default function BecomeOwnerScreen() {
             style={styles.checkboxRow}
             onPress={() => setAgreed((current) => !current)}
           >
-            <View
-              style={[
-                styles.checkbox,
-                agreed && styles.checkboxSelected,
-              ]}
-            >
+            <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>
               {agreed && (
-                <Ionicons
-                  name="checkmark"
-                  size={16}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
               )}
             </View>
 
@@ -267,10 +244,7 @@ export default function BecomeOwnerScreen() {
           {/* BUTTON */}
 
           <Pressable
-            style={[
-              styles.continueButton,
-              loading && styles.disabledButton,
-            ]}
+            style={[styles.continueButton, loading && styles.disabledButton]}
             disabled={loading}
             onPress={() => void handleContinue()}
           >
@@ -282,11 +256,7 @@ export default function BecomeOwnerScreen() {
                   Continue as Property Owner
                 </Text>
 
-                <Ionicons
-                  name="arrow-forward"
-                  size={19}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
               </>
             )}
           </Pressable>

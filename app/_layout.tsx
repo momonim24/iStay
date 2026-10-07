@@ -1,10 +1,12 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { AuthProvider } from "../src/auth/AuthProvider";
 import { isVerifiedSession } from "../src/auth/auth-guards";
 import { useAuth } from "../src/auth/useAuth";
 import LoadingSplash from "../src/components/SplashScreen";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   AuthButton,
   AuthNotice,
@@ -59,8 +61,11 @@ function AuthNavigator() {
 }
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AuthNavigator />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      <AuthProvider>
+        <AuthNavigator />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

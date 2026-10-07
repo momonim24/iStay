@@ -1,39 +1,43 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { useAuth } from "../../../src/auth/useAuth";
-import { requireSupabase } from "../../../src/lib/supabase";
 import {
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../../src/auth/useAuth";
+import { requireSupabase } from "../../../src/lib/supabase";
+import { useTenantDiscovery } from "../../../src/hooks/use-tenant-discovery";
+import { DiscoveryState } from "../../../src/components/tenant-listings";
+import {
+  TenantProperty,
+  propertyLocation,
+} from "../../../src/services/tenant-discovery.service";
+import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
 
-type Property = {
-  id: string;
-  name: string;
-  city: string;
-  province: string;
-  monthly_rent: number;
-  verified: boolean;
-  image?: string | null;
-};
+type Property = TenantProperty;
 
 export default function HomeScreen() {
   const [search, setSearch] = useState("");
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const saved = useTenantFavorites();
+  const favorites = saved.ids;
 
   const { user } = useAuth();
   const [fullName, setFullName] = useState("");
   const [isOwner, setIsOwner] = useState(false);
 
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [propertiesLoading, setPropertiesLoading] = useState(true);
+  const {
+    properties,
+    loading: propertiesLoading,
+    error,
+    retry,
+  } = useTenantDiscovery();
 
   useEffect(() => {
     if (!user) return;
@@ -58,70 +62,15 @@ export default function HomeScreen() {
   }, [user]);
 
   const toggleFavorite = (id: string) => {
-    setFavorites((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id],
-    );
+    void saved.toggle(id);
   };
 
   const openSearch = () => {
-    router.push("/(tenant)/(tabs)/search");
+    router.push({ pathname: "/(tenant)/(tabs)/search", params: { q: search } });
   };
 
-  useEffect(() => {
-    const loadProperties = async () => {
-      setPropertiesLoading(true);
-
-      const { data, error } = await requireSupabase()
-        .from("properties")
-        .select(
-          `
-        id,
-        name,
-        city,
-        province,
-        monthly_rent,
-        verified,
-        property_images (
-          image_url,
-          is_cover
-        )
-      `,
-        )
-        .eq("status", "active")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Failed to load properties:", error);
-        setPropertiesLoading(false);
-        return;
-      }
-
-      const formatted: Property[] = (data ?? []).map((property) => {
-        const images = property.property_images ?? [];
-        const cover = images.find((image) => image.is_cover) ?? images[0];
-
-        return {
-          id: property.id,
-          name: property.name,
-          city: property.city,
-          province: property.province,
-          monthly_rent: Number(property.monthly_rent),
-          verified: property.verified,
-          image: cover?.image_url ?? null,
-        };
-      });
-
-      setProperties(formatted);
-      setPropertiesLoading(false);
-    };
-
-    void loadProperties();
-  }, []);
-
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -254,6 +203,20 @@ export default function HomeScreen() {
         <Text style={styles.sectionDescription}>
           Properties you may be interested in.
         </Text>
+        <DiscoveryState
+          loading={propertiesLoading}
+          error={error}
+          empty={!properties.length}
+          onRetry={retry}
+        />
+        {!!saved.error && (
+          <DiscoveryState
+            loading={false}
+            error={saved.error}
+            empty={false}
+            onRetry={saved.retry}
+          />
+        )}
 
         <ScrollView
           horizontal
@@ -265,6 +228,7 @@ export default function HomeScreen() {
               key={property.id}
               property={property}
               favorite={favorites.includes(property.id)}
+              busy={!saved.ready || saved.busy.includes(property.id)}
               onFavorite={() => toggleFavorite(property.id)}
             />
           ))}
@@ -286,6 +250,7 @@ export default function HomeScreen() {
               key={property.id}
               property={property}
               favorite={favorites.includes(property.id)}
+              busy={!saved.ready || saved.busy.includes(property.id)}
               onFavorite={() => toggleFavorite(property.id)}
             />
           ))}
@@ -336,10 +301,12 @@ function SectionHeader({
 function PropertyCard({
   property,
   favorite,
+  busy,
   onFavorite,
 }: {
   property: Property;
   favorite: boolean;
+  busy: boolean;
   onFavorite: () => void;
 }) {
   return (
@@ -371,6 +338,8 @@ function PropertyCard({
 
         <Pressable
           style={styles.favoriteButton}
+          disabled={busy}
+          accessibilityLabel={favorite ? "Remove favorite" : "Save favorite"}
           onPress={(event) => {
             event.stopPropagation();
             onFavorite();
@@ -399,9 +368,7 @@ function PropertyCard({
         <View style={styles.locationRow}>
           <Ionicons name="location-outline" size={15} color="#64748B" />
 
-          <Text
-            style={styles.locationText}
-          >{`${property.city}, ${property.province}`}</Text>
+          <Text style={styles.locationText}>{propertyLocation(property)}</Text>
         </View>
 
         <Text style={styles.price}>
@@ -411,7 +378,14 @@ function PropertyCard({
 
         <View style={styles.availableRow}>
           <View style={styles.availableDot} />
-          <Text style={styles.availableText}>Available</Text>
+          <Text style={styles.availableText}>
+            {property.property_type} ·{" "}
+            {property.rooms.reduce(
+              (sum, room) => sum + room.available_slots,
+              0,
+            )}{" "}
+            available slots
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -421,10 +395,12 @@ function PropertyCard({
 function RecentPropertyCard({
   property,
   favorite,
+  busy,
   onFavorite,
 }: {
   property: Property;
   favorite: boolean;
+  busy: boolean;
   onFavorite: () => void;
 }) {
   return (
@@ -463,9 +439,7 @@ function RecentPropertyCard({
         <View style={styles.locationRow}>
           <Ionicons name="location-outline" size={14} color="#64748B" />
 
-          <Text
-            style={styles.locationText}
-          >{`${property.city}, ${property.province}`}</Text>
+          <Text style={styles.locationText}>{propertyLocation(property)}</Text>
         </View>
 
         <Text style={styles.price}>
@@ -475,6 +449,8 @@ function RecentPropertyCard({
       </View>
 
       <Pressable
+        disabled={busy}
+        accessibilityLabel={favorite ? "Remove favorite" : "Save favorite"}
         style={styles.recentFavorite}
         onPress={(event) => {
           event.stopPropagation();
@@ -832,48 +808,48 @@ const styles = StyleSheet.create({
   },
 
   ownerCard: {
-  flexDirection: "row",
-  alignItems: "center",
-  backgroundColor: "#FFFFFF",
-  borderWidth: 1,
-  borderColor: "#DBEAFE",
-  borderRadius: 18,
-  padding: 16,
-  marginBottom: 27,
-},
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 27,
+  },
 
-ownerCardIcon: {
-  width: 54,
-  height: 54,
-  borderRadius: 17,
-  backgroundColor: "#EFF6FF",
-  alignItems: "center",
-  justifyContent: "center",
-  marginRight: 13,
-},
+  ownerCardIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 17,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 13,
+  },
 
-ownerCardContent: {
-  flex: 1,
-},
+  ownerCardContent: {
+    flex: 1,
+  },
 
-ownerCardLabel: {
-  color: "#2563EB",
-  fontSize: 10,
-  fontWeight: "800",
-  letterSpacing: 0.8,
-  marginBottom: 3,
-},
+  ownerCardLabel: {
+    color: "#2563EB",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
 
-ownerCardTitle: {
-  color: "#0F172A",
-  fontSize: 15,
-  fontWeight: "700",
-},
+  ownerCardTitle: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
-ownerCardDescription: {
-  color: "#64748B",
-  fontSize: 12,
-  lineHeight: 17,
-  marginTop: 3,
-},
+  ownerCardDescription: {
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
 });

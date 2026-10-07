@@ -1,13 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import {
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Notification = {
   id: string;
@@ -50,13 +44,13 @@ const notifications: Notification[] = [
 
 export default function NotificationsScreen() {
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom", "left", "right"]}
+    >
       {/* HEADER */}
       <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#172554" />
         </Pressable>
 
@@ -108,18 +102,12 @@ export default function NotificationsScreen() {
                       {notification.title}
                     </Text>
 
-                    {notification.unread && (
-                      <View style={styles.unreadDot} />
-                    )}
+                    {notification.unread && <View style={styles.unreadDot} />}
                   </View>
 
-                  <Text style={styles.message}>
-                    {notification.message}
-                  </Text>
+                  <Text style={styles.message}>{notification.message}</Text>
 
-                  <Text style={styles.time}>
-                    {notification.time}
-                  </Text>
+                  <Text style={styles.time}>{notification.time}</Text>
                 </View>
               </Pressable>
             ))}
@@ -134,13 +122,11 @@ export default function NotificationsScreen() {
               />
             </View>
 
-            <Text style={styles.emptyTitle}>
-              No notifications yet
-            </Text>
+            <Text style={styles.emptyTitle}>No notifications yet</Text>
 
             <Text style={styles.emptyText}>
-              Updates about your applications, properties and account
-              will appear here.
+              Updates about your applications, properties and account will
+              appear here.
             </Text>
           </View>
         )}
@@ -150,7 +136,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: "#F8FAFC",
   },
