@@ -1,32 +1,24 @@
 import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Notice } from "../../../src/components/ui";
+import { colors, spacing, type } from "../../../src/constants/ui";
 
 export default function OwnerMaintenanceScreen() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Maintenance</Text>
-      <Text style={styles.text}>
-        Rental maintenance will appear here.
-      </Text>
-    </View>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      <View style={styles.content}>
+        <Text style={type.title}>Maintenance</Text>
+        <Notice
+          icon="construct-outline"
+          title="Maintenance requests are coming soon"
+          message="Requests from your tenants will appear here."
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-    padding: 20,
-    paddingTop: 60,
-  },
-
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-
-  text: {
-    color: "#64748B",
-    marginTop: 8,
-  },
+  safe: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, gap: spacing.lg },
 });

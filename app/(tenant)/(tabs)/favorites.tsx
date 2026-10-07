@@ -12,8 +12,24 @@ import {
 } from "../../../src/services/tenant-discovery.service";
 import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
 import { useAuth } from "../../../src/auth/useAuth";
+import { useRequireAuth } from "../../../src/auth/use-require-auth";
+import { AuthGate } from "../../../src/components/auth/AuthGate";
+import { colors, spacing, type } from "../../../src/constants/ui";
 
 export default function FavoritesScreen() {
+  const { signedIn } = useRequireAuth();
+  if (!signedIn)
+    return (
+      <AuthGate
+        title="Favorites"
+        icon="heart-outline"
+        heading="Keep the places you like"
+        reason="Log in to see your saved properties."
+      />
+    );
+  return <Favorites />;
+}
+function Favorites() {
   const { user } = useAuth();
   const [properties, setProperties] = useState<TenantProperty[]>([]),
     [loading, setLoading] = useState(true),
@@ -53,6 +69,8 @@ export default function FavoritesScreen() {
           error={error}
           empty={!properties.length}
           onRetry={retry}
+          emptyTitle="No favorites yet"
+          emptyMessage="Tap the heart on a listing to save it here."
         />
         {!!saved.error && (
           <DiscoveryState
@@ -79,23 +97,7 @@ export default function FavoritesScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  container: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginTop: 40,
-    marginBottom: 20,
-  },
-  placeholder: {
-    textAlign: "center",
-    color: "#777",
-    marginTop: 40,
-  },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  container: { padding: spacing.xl, paddingBottom: spacing.xxl },
+  title: { ...type.title, marginBottom: spacing.lg },
 });

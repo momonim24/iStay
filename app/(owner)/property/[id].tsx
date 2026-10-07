@@ -164,7 +164,7 @@ export default function ManagePropertyScreen() {
           onPress={() =>
             router.canGoBack()
               ? router.back()
-              : router.replace("/(owner)/properties")
+              : router.replace("/(owner)/(tabs)/properties")
           }
         >
           <Ionicons name="arrow-back" size={22} color="#0F172A" />

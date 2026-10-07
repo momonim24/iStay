@@ -5,11 +5,26 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../../src/auth/useAuth";
+import { useRequireAuth } from "../../../src/auth/use-require-auth";
+import { AuthGate } from "../../../src/components/auth/AuthGate";
 import { AuthButton, AuthNotice } from "../../../src/components/auth/AuthForm";
 import { useAuthAction } from "../../../src/hooks/use-auth-action";
 import { authConfigured, requireSupabase } from "../../../src/lib/supabase";
 
 export default function ProfileScreen() {
+  const { signedIn } = useRequireAuth();
+  if (!signedIn)
+    return (
+      <AuthGate
+        title="Profile"
+        icon="person-outline"
+        heading="Your iStay account"
+        reason="Log in to manage your profile, applications and listings."
+      />
+    );
+  return <Profile />;
+}
+function Profile() {
   const { user, signOut } = useAuth();
   const action = useAuthAction();
 
@@ -125,7 +140,7 @@ export default function ProfileScreen() {
 
         <View style={styles.logout}>
           <AuthButton
-            title="Logout"
+            title="Log out"
             busy={action.busy}
             onPress={() => void action.run(signOut)}
           />

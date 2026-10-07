@@ -21,12 +21,32 @@ const conflict =
   "You already have a pending or approved application for this property and room. Check My Applications.";
 const changed =
   "This application has already been decided or is no longer available. Refresh the list.";
+const missing =
+  "This application could not be found. Refresh the list and try again.";
+const cancelUnsupported =
+  "Cancelling applications is not enabled yet. Please contact support.";
+// The only status changes this app performs; anything else is refused.
+const transitions: Record<
+  "tenant" | "landlord",
+  Partial<Record<ApplicationStatus, ApplicationStatus[]>>
+> = {
+  tenant: { pending: ["cancelled"] },
+  landlord: { pending: ["approved", "rejected"] },
+};
+export function canTransition(
+  role: "tenant" | "landlord",
+  from: ApplicationStatus,
+  to: ApplicationStatus,
+): boolean {
+  return transitions[role][from]?.includes(to) ?? false;
+}
+export const ownPropertyMessage = "You cannot apply to your own property.";
 const baseFields =
   "id,tenant_id,property_id,room_id,message,status,created_at,updated_at";
 const detailFields = `${baseFields},
-  property:properties(id,owner_id,name,address,barangay,city,province,property_type,monthly_rent,
+  property:properties(id,owner_id,name,address,barangay,city,province,property_type,monthly_rent,security_deposit,
     property_images(id,image_url,is_cover,sort_order)),
-  room:rooms(id,property_id,name,monthly_rent)`;
+  room:rooms(id,property_id,name,monthly_rent,capacity,available_slots)`;
 
 function logError(error: unknown) {
   if (typeof __DEV__ !== "undefined" && __DEV__)
@@ -35,14 +55,15 @@ function logError(error: unknown) {
 async function request<T>(
   query: PromiseLike<{ data: T; error: unknown }>,
   message: string,
+  codes: Record<string, string> = {},
 ): Promise<T> {
   try {
     const { data, error } = await query;
     if (error) {
       logError(error);
-      if ((error as { code?: string }).code === "23505")
-        throw new ApplicationError(conflict);
-      throw new ApplicationError(message);
+      const code = (error as { code?: string }).code ?? "";
+      if (code === "23505") throw new ApplicationError(conflict);
+      throw new ApplicationError(codes[code] ?? message);
     }
     return data;
   } catch (error) {
@@ -96,6 +117,10 @@ export function formatApplication(row: JoinedRow): ApplicationDetails {
       ? {
           ...property,
           monthly_rent: Number(property.monthly_rent),
+          security_deposit:
+            property.security_deposit == null
+              ? null
+              : Number(property.security_deposit),
           image:
             orderPhotos(property.property_images ?? [])[0]?.image_url ?? null,
         }
@@ -107,42 +132,44 @@ export function formatApplication(row: JoinedRow): ApplicationDetails {
 async function existing(
   tenantId: string,
   propertyId: string,
-  roomId: string | null,
+  roomId: string,
 ): Promise<RentalApplication | null> {
-  let query = requireSupabase()
-    .from("applications")
-    .select(baseFields)
-    .eq("tenant_id", tenantId)
-    .eq("property_id", propertyId)
-    .in("status", ["pending", "approved"]);
-  query =
-    roomId === null ? query.is("room_id", null) : query.eq("room_id", roomId);
   const rows = await request(
-    query.order("created_at", { ascending: false }).limit(1),
+    requireSupabase()
+      .from("applications")
+      .select(baseFields)
+      .eq("tenant_id", tenantId)
+      .eq("property_id", propertyId)
+      .eq("room_id", roomId)
+      .in("status", ["pending", "approved"])
+      .order("created_at", { ascending: false })
+      .limit(1),
     "Unable to check existing applications. Please try again.",
   );
   return (rows?.[0] as RentalApplication | undefined) ?? null;
 }
 export async function findRelevantApplication(
   propertyId: string,
-  roomId: string | null = null,
+  roomId: string,
 ): Promise<RentalApplication | null> {
   uuid(propertyId, "property");
-  if (roomId !== null) uuid(roomId, "room");
+  uuid(roomId, "room");
   return existing(await authenticatedUserId(), propertyId, roomId);
 }
 const submissions = new Set<string>();
 export async function submitApplication(input: {
   propertyId: string;
-  roomId?: string | null;
+  roomId: string;
   message?: string;
 }): Promise<RentalApplication> {
   uuid(input.propertyId, "property");
-  const roomId = input.roomId ?? null;
-  if (roomId !== null) uuid(roomId, "room");
+  const roomId = input.roomId;
+  if (!roomId)
+    throw new ApplicationError("Choose an available room before applying.");
+  uuid(roomId, "room");
   const message = applicationMessage(input.message);
   const tenantId = await authenticatedUserId();
-  const key = `${tenantId}:${input.propertyId}:${roomId ?? "property"}`;
+  const key = `${tenantId}:${input.propertyId}:${roomId}`;
   if (submissions.has(key))
     throw new ApplicationError(
       "Your application is already being submitted. Please wait.",
@@ -161,25 +188,26 @@ export async function submitApplication(input: {
     }
     if (!property || !tenantVisible(property))
       throw new ApplicationError(unavailable);
-    if (roomId !== null) {
-      const room = await request(
-        requireSupabase()
-          .from("rooms")
-          .select("id,property_id,available,available_slots")
-          .eq("id", roomId)
-          .eq("property_id", input.propertyId)
-          .maybeSingle(),
-        "Unable to check the selected room. Please try again.",
+    // Every account can act as a tenant, but never towards its own listing.
+    if (property.owner_id === tenantId)
+      throw new ApplicationError(ownPropertyMessage);
+    const room = await request(
+      requireSupabase()
+        .from("rooms")
+        .select("id,property_id,available,available_slots")
+        .eq("id", roomId)
+        .eq("property_id", input.propertyId)
+        .maybeSingle(),
+      "Unable to check the selected room. Please try again.",
+    );
+    if (!room || room.property_id !== input.propertyId)
+      throw new ApplicationError(
+        "This room is no longer available for this property. Choose another room.",
       );
-      if (!room || room.property_id !== input.propertyId)
-        throw new ApplicationError(
-          "This room is no longer available for this property. Choose another room.",
-        );
-      if (room.available !== true || !(Number(room.available_slots) > 0))
-        throw new ApplicationError(
-          "This room has no available slots. Choose another room or a property inquiry.",
-        );
-    }
+    if (room.available !== true || !(Number(room.available_slots) > 0))
+      throw new ApplicationError(
+        "This room has no available slots. Choose another room.",
+      );
     if (await existing(tenantId, input.propertyId, roomId))
       throw new ApplicationError(conflict);
     // Only whitelisted fields; caller-supplied tenant_id/status/etc. are ignored.
@@ -276,24 +304,25 @@ async function ownedPropertyIds(ownerId: string): Promise<string[]> {
   }
   return ids;
 }
-export async function fetchLandlordApplications(): Promise<
-  ApplicationDetails[]
-> {
-  const ownerId = await authenticatedUserId();
-  const ids = await ownedPropertyIds(ownerId);
-  const result: ApplicationDetails[] = [];
-  for (let index = 0; index < ids.length; index += 100) {
-    const chunk = ids.slice(index, index + 100);
-    result.push(
-      ...(
-        await applicationPages((query) => query.in("property_id", chunk))
-      ).filter(
-        (row) =>
-          chunk.includes(row.property_id) && row.property?.owner_id === ownerId,
-      ),
-    );
-  }
-  // Profile privacy stays with RLS. Failure here must not hide application history.
+async function ownsProperty(
+  ownerId: string,
+  propertyId: string,
+): Promise<boolean> {
+  const property = await request(
+    requireSupabase()
+      .from("properties")
+      .select("id,owner_id")
+      .eq("id", propertyId)
+      .eq("owner_id", ownerId)
+      .maybeSingle(),
+    "Unable to check property ownership. Please try again.",
+  );
+  return !!property && property.owner_id === ownerId;
+}
+// Profile privacy stays with RLS. Failure here must not hide application history.
+async function withTenantNames(
+  result: ApplicationDetails[],
+): Promise<ApplicationDetails[]> {
   const tenantIds = [...new Set(result.map((row) => row.tenant_id))];
   const names = new Map<string, string>();
   for (let index = 0; index < tenantIds.length; index += 100) {
@@ -311,17 +340,53 @@ export async function fetchLandlordApplications(): Promise<
       /* Use application tenant_id only when profiles are inaccessible. */
     }
   }
-  return sortApplications(
-    result.map((row) => ({
-      ...row,
-      tenantName: names.get(row.tenant_id) ?? null,
-    })),
+  return result.map((row) => ({
+    ...row,
+    tenantName: names.get(row.tenant_id) ?? null,
+  }));
+}
+export async function fetchLandlordApplication(
+  id: string,
+): Promise<ApplicationDetails | null> {
+  uuid(id, "application");
+  const ownerId = await authenticatedUserId();
+  const row = await request(
+    requireSupabase()
+      .from("applications")
+      .select(detailFields)
+      .eq("id", id)
+      .maybeSingle(),
+    "Unable to load this application. Please try again.",
   );
+  // Ownership is checked against the property itself, not the route's ID.
+  if (!row || !(await ownsProperty(ownerId, row.property_id))) return null;
+  const details = formatApplication(row as unknown as JoinedRow);
+  if (details.property && details.property.owner_id !== ownerId) return null;
+  return (await withTenantNames([details]))[0];
+}
+export async function fetchLandlordApplications(): Promise<
+  ApplicationDetails[]
+> {
+  const ownerId = await authenticatedUserId();
+  const ids = await ownedPropertyIds(ownerId);
+  const result: ApplicationDetails[] = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    result.push(
+      ...(
+        await applicationPages((query) => query.in("property_id", chunk))
+      ).filter(
+        (row) =>
+          chunk.includes(row.property_id) && row.property?.owner_id === ownerId,
+      ),
+    );
+  }
+  return sortApplications(await withTenantNames(result));
 }
 const decisions = new Set<string>();
 async function decideApplication(
   id: string,
-  status: Exclude<ApplicationStatus, "pending">,
+  status: "approved" | "rejected",
 ): Promise<RentalApplication> {
   uuid(id, "application");
   const ownerId = await authenticatedUserId();
@@ -341,20 +406,12 @@ async function decideApplication(
       "Unable to check this application. Please try again.",
     );
     if (!row) throw new ApplicationError(changed);
-    const property = await request(
-      requireSupabase()
-        .from("properties")
-        .select("id,owner_id")
-        .eq("id", row.property_id)
-        .eq("owner_id", ownerId)
-        .maybeSingle(),
-      "Unable to check property ownership. Please try again.",
-    );
-    if (!property || property.owner_id !== ownerId)
+    if (!(await ownsProperty(ownerId, row.property_id)))
       throw new ApplicationError(
         "You can only manage applications for your own properties.",
       );
-    if (row.status !== "pending") throw new ApplicationError(changed);
+    if (!canTransition("landlord", row.status as ApplicationStatus, status))
+      throw new ApplicationError(changed);
     // Atomic conditional status transition; room slots are deliberately untouched.
     // RLS must also enforce ownership at update time (see the manual SQL review).
     const updated = await request(
@@ -362,7 +419,7 @@ async function decideApplication(
         .from("applications")
         .update({ status, updated_at: new Date().toISOString() })
         .eq("id", id)
-        .eq("property_id", property.id)
+        .eq("property_id", row.property_id)
         .eq("status", "pending")
         .select(baseFields)
         .maybeSingle(),
@@ -378,3 +435,53 @@ export const approveApplication = (id: string) =>
   decideApplication(id, "approved");
 export const rejectApplication = (id: string) =>
   decideApplication(id, "rejected");
+export async function cancelApplication(
+  id: string,
+): Promise<RentalApplication> {
+  uuid(id, "application");
+  const tenantId = await authenticatedUserId();
+  const key = `${tenantId}:${id}`;
+  if (decisions.has(key))
+    throw new ApplicationError(
+      "This application is already being updated. Please wait.",
+    );
+  decisions.add(key);
+  try {
+    const row = await request(
+      requireSupabase()
+        .from("applications")
+        .select(baseFields)
+        .eq("id", id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
+      "Unable to check this application. Please try again.",
+    );
+    if (!row || row.tenant_id !== tenantId) throw new ApplicationError(missing);
+    if (!canTransition("tenant", row.status as ApplicationStatus, "cancelled"))
+      throw new ApplicationError(
+        "Only pending applications can be cancelled. Refresh the list.",
+      );
+    // Conditional on the current status so a landlord decision is never overwritten.
+    const updated = await request(
+      requireSupabase()
+        .from("applications")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("tenant_id", tenantId)
+        .eq("status", "pending")
+        .select(baseFields)
+        .maybeSingle(),
+      "Unable to cancel this application. Refresh the list and try again.",
+      // Raised when the database does not accept the cancelled status or
+      // tenant updates yet (see docs/RENTAL-APPLICATIONS.md).
+      { "23514": cancelUnsupported, "42501": cancelUnsupported },
+    );
+    if (!updated)
+      throw new ApplicationError(
+        "This application could not be cancelled. It may already have been decided. Refresh the list.",
+      );
+    return updated as RentalApplication;
+  } finally {
+    decisions.delete(key);
+  }
+}

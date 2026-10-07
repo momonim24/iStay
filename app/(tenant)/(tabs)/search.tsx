@@ -1,7 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,20 +13,60 @@ import {
   DiscoveryState,
   ListingCard,
 } from "../../../src/components/tenant-listings";
+import { Chip } from "../../../src/components/ui";
+import {
+  card,
+  colors,
+  radius,
+  spacing,
+  type,
+} from "../../../src/constants/ui";
 import { useTenantDiscovery } from "../../../src/hooks/use-tenant-discovery";
-import { DiscoveryFilters } from "../../../src/services/tenant-discovery.service";
 import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
+import { DiscoveryFilters } from "../../../src/services/tenant-discovery.service";
+
+const PROPERTY_TYPES = [
+  "Apartment",
+  "Boarding House",
+  "Dormitory",
+  "Bedspace",
+  "House",
+  "Room for Rent",
+];
+type Panel = "location" | "type" | "price" | null;
+const peso = (value?: string) =>
+  value?.trim() && Number.isFinite(Number(value))
+    ? `₱${Number(value).toLocaleString("en-PH")}`
+    : "";
 
 export default function SearchScreen() {
-  const { q } = useLocalSearchParams<{ q?: string }>();
+  const params = useLocalSearchParams<{ q?: string; type?: string }>();
+  const q = typeof params.q === "string" ? params.q : undefined;
+  const preset = typeof params.type === "string" ? params.type : undefined;
   const [filters, setFilters] = useState<DiscoveryFilters>({
-    text: typeof q === "string" ? q : "",
+    text: q ?? "",
+    propertyType: preset ?? "",
   });
+  const [panel, setPanel] = useState<Panel>(null);
   useEffect(() => {
-    if (typeof q === "string") setFilters((f) => ({ ...f, text: q }));
+    if (q !== undefined) setFilters((f) => ({ ...f, text: q }));
   }, [q]);
+  useEffect(() => {
+    if (preset !== undefined) setFilters((f) => ({ ...f, propertyType: preset }));
+  }, [preset]);
   const discovery = useTenantDiscovery(filters);
   const saved = useTenantFavorites();
+  const set = (field: keyof DiscoveryFilters, value: string) =>
+    setFilters((f) => ({ ...f, [field]: value }));
+  const toggle = (next: Panel) => setPanel(panel === next ? null : next);
+
+  const city = filters.city?.trim() ?? "";
+  const propertyType = filters.propertyType?.trim() ?? "";
+  const min = peso(filters.minRent),
+    max = peso(filters.maxRent);
+  const price =
+    min && max ? `${min} – ${max}` : min ? `From ${min}` : max ? `Up to ${max}` : "";
+  const filtered = !!(city || propertyType || price);
   const input = (
     field: keyof DiscoveryFilters,
     placeholder: string,
@@ -35,41 +75,116 @@ export default function SearchScreen() {
     <TextInput
       accessibilityLabel={placeholder}
       placeholder={placeholder}
-      placeholderTextColor="#94A3B8"
-      style={styles.search}
+      placeholderTextColor={colors.textSubtle}
+      style={styles.input}
       value={filters[field] || ""}
-      onChangeText={(value) => setFilters((f) => ({ ...f, [field]: value }))}
+      onChangeText={(value) => set(field, value)}
       keyboardType={numeric ? "decimal-pad" : "default"}
     />
   );
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Find Accommodation</Text>
-        {input("text", "Search property or location")}
-        {input("city", "City (exact name)")}
-        {input("propertyType", "Property type (exact name)")}
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            {input("minRent", "Minimum rent", true)}
-          </View>
-          <View style={{ flex: 1 }}>
-            {input("maxRent", "Maximum rent", true)}
-          </View>
+        <Text style={type.title}>Search</Text>
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={20} color={colors.textMuted} />
+          <TextInput
+            accessibilityLabel="Search property or location"
+            placeholder="Search property or location"
+            placeholderTextColor={colors.textSubtle}
+            style={styles.searchInput}
+            value={filters.text || ""}
+            onChangeText={(value) => set("text", value)}
+            returnKeyType="search"
+          />
         </View>
-        <Pressable onPress={() => setFilters({})}>
-          <Text style={{ color: "#1D4ED8", marginBottom: 16 }}>
-            Clear filters
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chips}
+        >
+          <Chip
+            icon="location-outline"
+            label={city || "Location"}
+            selected={!!city || panel === "location"}
+            onPress={() => toggle("location")}
+          />
+          <Chip
+            icon="business-outline"
+            label={propertyType || "Property type"}
+            selected={!!propertyType || panel === "type"}
+            onPress={() => toggle("type")}
+          />
+          <Chip
+            icon="cash-outline"
+            label={price || "Price"}
+            selected={!!price || panel === "price"}
+            onPress={() => toggle("price")}
+          />
+          {filtered && (
+            <Chip
+              icon="close"
+              label="Clear"
+              onPress={() => {
+                setFilters({ text: filters.text });
+                setPanel(null);
+              }}
+            />
+          )}
+        </ScrollView>
+
+        {panel === "location" && (
+          <View style={styles.panel}>
+            <Text style={type.caption}>City or municipality (exact name)</Text>
+            {input("city", "e.g. Imus")}
+          </View>
+        )}
+        {panel === "type" && (
+          <View style={[styles.panel, styles.options]}>
+            {PROPERTY_TYPES.map((value) => (
+              <Chip
+                key={value}
+                label={value}
+                selected={propertyType.toLowerCase() === value.toLowerCase()}
+                onPress={() =>
+                  set(
+                    "propertyType",
+                    propertyType.toLowerCase() === value.toLowerCase()
+                      ? ""
+                      : value,
+                  )
+                }
+              />
+            ))}
+          </View>
+        )}
+        {panel === "price" && (
+          <View style={styles.panel}>
+            <Text style={type.caption}>Monthly rent in pesos</Text>
+            <View style={styles.priceRow}>
+              <View style={{ flex: 1 }}>{input("minRent", "Minimum", true)}</View>
+              <View style={{ flex: 1 }}>{input("maxRent", "Maximum", true)}</View>
+            </View>
+          </View>
+        )}
+
+        {!discovery.loading && !discovery.error && (
+          <Text style={[type.caption, styles.count]}>
+            {discovery.properties.length}{" "}
+            {discovery.properties.length === 1 ? "property" : "properties"} found
           </Text>
-        </Pressable>
+        )}
         <DiscoveryState
           loading={discovery.loading}
           error={discovery.error}
           empty={!discovery.properties.length}
           onRetry={discovery.retry}
+          emptyTitle="No matching properties"
+          emptyMessage="Try a different search or remove a filter."
         />
         {!!saved.error && (
           <DiscoveryState
@@ -96,30 +211,31 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
+  safe: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl },
+  searchBox: {
+    ...card,
+    borderRadius: radius.md,
+    height: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.lg,
   },
-  container: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginTop: 40,
-    marginBottom: 20,
-  },
-  search: {
+  searchInput: { flex: 1, height: "100%", color: colors.text, fontSize: 14 },
+  chips: { gap: spacing.sm, paddingVertical: spacing.md },
+  panel: { ...card, padding: spacing.md, gap: spacing.sm },
+  options: { flexDirection: "row", flexWrap: "wrap" },
+  priceRow: { flexDirection: "row", gap: spacing.md },
+  input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
+    color: colors.text,
   },
-  placeholder: {
-    textAlign: "center",
-    color: "#777",
-    marginTop: 40,
-  },
+  count: { marginTop: spacing.md, marginBottom: spacing.md },
 });

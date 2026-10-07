@@ -3,6 +3,7 @@ import { useAuth } from "../../src/auth/useAuth";
 import {
   AuthButton,
   AuthDivider,
+  AuthLink,
   AuthNotice,
   AuthScreen,
 } from "../../src/components/auth/AuthForm";
@@ -20,7 +21,7 @@ export default function WelcomeScreen() {
     >
       <AuthNotice error={action.error || linkError} />
       <AuthButton
-        title="Login"
+        title="Log in"
         disabled={action.busy}
         onPress={() => router.push("/(auth)/login")}
       />
@@ -32,6 +33,7 @@ export default function WelcomeScreen() {
       />
       <AuthDivider />
       <GoogleAuthButton busy={action.busy} run={action.run} />
+      <AuthLink href="/(tenant)/(tabs)">Browse properties as a guest</AuthLink>
     </AuthScreen>
   );
 }

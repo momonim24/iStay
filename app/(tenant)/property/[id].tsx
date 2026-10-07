@@ -3,25 +3,48 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Image,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { DiscoveryState } from "../../../src/components/tenant-listings";
+import { useRequireAuth } from "../../../src/auth/use-require-auth";
+import { useAuth } from "../../../src/auth/useAuth";
+import {
+  DiscoveryState,
+  Price,
+  PropertyPhoto,
+} from "../../../src/components/tenant-listings";
+import {
+  Badge,
+  Button,
+  IconButton,
+  Notice,
+  type IconName,
+} from "../../../src/components/ui";
+import {
+  card,
+  colors,
+  radius,
+  spacing,
+  type,
+} from "../../../src/constants/ui";
+import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
+import { ownPropertyMessage } from "../../../src/services/application.service";
 import {
   fetchTenantProperty,
-  rentLabel,
   TenantProperty,
 } from "../../../src/services/tenant-discovery.service";
-import { useTenantFavorites } from "../../../src/hooks/use-tenant-favorites";
 
 export default function PropertyDetailsScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = typeof params.id === "string" ? params.id : "";
   const saved = useTenantFavorites();
+  const { user } = useAuth();
+  const { requireAuth } = useRequireAuth();
+  const { width } = useWindowDimensions();
   const [property, setProperty] = useState<TenantProperty | null>(null);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -50,196 +73,339 @@ export default function PropertyDetailsScreen() {
       };
     }, [id, revision]),
   );
+  const own = !!property && !!user && property.owner_id === user.id;
+  const back = () =>
+    router.canGoBack() ? router.back() : router.replace("/(tenant)/(tabs)");
+  // Guests are asked to log in, then continue into this Apply flow.
+  const apply = (roomId?: string) => {
+    if (!property) return;
+    const next = {
+      pathname: "/(tenant)/property/apply",
+      params: roomId
+        ? { propertyId: property.id, roomId }
+        : { propertyId: property.id },
+    } as const;
+    if (
+      requireAuth(
+        roomId
+          ? "Log in to apply for this room."
+          : "Log in to apply for this property.",
+        next,
+      )
+    )
+      router.push(next);
+  };
+  const favorite = saved.ids.includes(id);
+  const photoWidth = Math.min(width, 720);
+  const amenities = (property?.property_amenities ?? []).flatMap((a) =>
+    a.amenities ? (Array.isArray(a.amenities) ? a.amenities : [a.amenities]) : [],
+  );
+  const utilities: [string, IconName, boolean][] = property
+    ? [
+        ["Electricity", "flash-outline", property.electricity_included],
+        ["Water", "water-outline", property.water_included],
+        ["Internet", "wifi-outline", property.internet_included],
+      ]
+    : [];
   return (
-    <SafeAreaView
-      style={styles.safe}
-      edges={["top", "left", "right", "bottom"]}
-    >
-      <ScrollView contentContainerStyle={styles.content}>
-        <Pressable
-          accessibilityLabel="Go back"
-          onPress={() =>
-            router.canGoBack()
-              ? router.back()
-              : router.replace("/(tenant)/(tabs)")
-          }
-        >
-          <Ionicons name="arrow-back" size={26} color="#172554" />
-        </Pressable>
-        <DiscoveryState
-          loading={loading}
-          error={error}
-          empty={false}
-          onRetry={() => setRevision((r) => r + 1)}
-        />
-        {!!saved.error && (
-          <DiscoveryState
-            loading={false}
-            error={saved.error}
-            empty={false}
-            onRetry={saved.retry}
-          />
-        )}
-        {!loading && !error && !property && (
-          <Text style={styles.body}>
-            This listing is unavailable or the property link is invalid.
-          </Text>
-        )}
-        {property && (
-          <>
-            <Text style={styles.title}>{property.name}</Text>
-            <Text style={styles.body}>
-              {property.property_type} · Verified ✓
-            </Text>
-            <Pressable
-              disabled={!saved.ready || saved.busy.includes(id)}
-              accessibilityLabel={
-                saved.ids.includes(id) ? "Remove favorite" : "Save favorite"
-              }
-              onPress={() => {
-                void saved.toggle(id);
-              }}
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right", "bottom"]}>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View>
+          {property && property.property_images.length > 0 ? (
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
             >
-              <Text style={styles.price}>
-                {saved.busy.includes(id)
-                  ? "Saving…"
-                  : saved.ids.includes(id)
-                    ? "♥ Saved — remove favorite"
-                    : "♡ Save to Favorites"}
-              </Text>
-            </Pressable>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {property.property_images.length ? (
-                property.property_images.map((photo) => (
-                  <Image
-                    key={photo.id}
-                    source={{ uri: photo.image_url }}
-                    style={styles.photo}
-                  />
-                ))
-              ) : (
-                <View
-                  style={[
-                    styles.photo,
-                    { alignItems: "center", justifyContent: "center" },
-                  ]}
-                >
-                  <Image
-                    source={require("../../../assets/images/logo_gray.png")}
-                    style={{ width: 65, height: 65 }}
-                  />
-                  <Text>No photo yet</Text>
-                </View>
-              )}
+              {property.property_images.map((photo) => (
+                <Image
+                  key={photo.id}
+                  source={{ uri: photo.image_url }}
+                  style={[styles.photo, { width: photoWidth }]}
+                />
+              ))}
             </ScrollView>
-            <Text style={styles.price}>{rentLabel(property.monthly_rent)}</Text>
-            <Pressable
-              accessibilityLabel="Apply to this property"
-              onPress={() => router.push({ pathname: "/(tenant)/property/apply", params: { propertyId: property.id } })}
-              style={{ backgroundColor: "#1D4ED8", padding: 14, borderRadius: 12, alignItems: "center" }}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Apply</Text>
-            </Pressable>
-            <Text style={styles.body}>
-              Security deposit:{" "}
-              {property.security_deposit == null
-                ? "Not specified"
-                : `₱${property.security_deposit.toLocaleString("en-PH")}`}
-            </Text>
-            <Text style={styles.body}>
-              {[
-                property.address,
-                property.barangay,
-                property.city,
-                property.province,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            </Text>
-            <Text style={styles.heading}>About this property</Text>
-            <Text style={styles.body}>
-              {property.description || "No description provided."}
-            </Text>
-            <Text style={styles.heading}>Utilities</Text>
-            {[
-              ["Electricity", property.electricity_included],
-              ["Water", property.water_included],
-              ["Internet", property.internet_included],
-            ].map(([name, included]) => (
-              <Text key={String(name)} style={styles.body}>
-                {name}: {included ? "Included" : "Not included"}
+          ) : (
+            <PropertyPhoto uri={null} height={property ? 260 : 96} />
+          )}
+          <View style={styles.overlay}>
+            <IconButton
+              icon="arrow-back"
+              accessibilityLabel="Go back"
+              onPress={back}
+            />
+            {property && (
+              <IconButton
+                icon={favorite ? "heart" : "heart-outline"}
+                color={favorite ? colors.heart : colors.brandDark}
+                accessibilityLabel={
+                  favorite ? "Remove favorite" : "Save favorite"
+                }
+                disabled={!saved.ready || saved.busy.includes(id)}
+                onPress={() => void saved.toggle(id)}
+              />
+            )}
+          </View>
+          {property && property.property_images.length > 1 && (
+            <View style={styles.count}>
+              <Ionicons name="images-outline" size={13} color={colors.surface} />
+              <Text style={styles.countText}>
+                {property.property_images.length} photos
               </Text>
-            ))}
-            <Text style={styles.heading}>Amenities</Text>
-            {property.property_amenities.length ? (
-              property.property_amenities
-                .flatMap((a) =>
-                  a.amenities
-                    ? Array.isArray(a.amenities)
-                      ? a.amenities
-                      : [a.amenities]
-                    : [],
-                )
-                .map((a) => (
-                  <View key={a.id} style={{ flexDirection: "row", gap: 8 }}>
-                    {a.icon && a.icon in Ionicons.glyphMap && (
-                      <Ionicons
-                        name={a.icon as keyof typeof Ionicons.glyphMap}
-                        size={18}
-                        color="#64748B"
+            </View>
+          )}
+        </View>
+
+        <View style={styles.content}>
+          <DiscoveryState
+            loading={loading}
+            error={error}
+            empty={false}
+            onRetry={() => setRevision((r) => r + 1)}
+          />
+          {!!saved.error && (
+            <DiscoveryState
+              loading={false}
+              error={saved.error}
+              empty={false}
+              onRetry={saved.retry}
+            />
+          )}
+          {!loading && !error && !property && (
+            <Notice
+              icon="alert-circle-outline"
+              title="This listing is unavailable"
+              message="It may have been removed, or the link is invalid."
+            >
+              <Button title="Browse properties" onPress={back} />
+            </Notice>
+          )}
+          {property && (
+            <>
+              <Text style={type.title}>{property.name}</Text>
+              <View style={styles.row}>
+                <Ionicons
+                  name="location-outline"
+                  size={16}
+                  color={colors.textMuted}
+                />
+                <Text style={[type.body, { flex: 1 }]}>
+                  {[
+                    property.address,
+                    property.barangay,
+                    property.city,
+                    property.province,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                </Text>
+              </View>
+              <Price value={property.monthly_rent} large />
+              <View style={styles.wrap}>
+                <Badge
+                  label="Verified"
+                  icon="shield-checkmark-outline"
+                  color={colors.brand}
+                  background={colors.brandSoft}
+                />
+                <Badge
+                  label={property.property_type}
+                  icon="business-outline"
+                  color={colors.neutral}
+                  background={colors.neutralSoft}
+                />
+              </View>
+
+              <Text style={styles.heading}>About this property</Text>
+              <Text style={type.body}>
+                {property.description || "No description provided."}
+              </Text>
+
+              <Text style={styles.heading}>Costs and utilities</Text>
+              <View style={styles.panel}>
+                <View style={styles.line}>
+                  <Ionicons
+                    name="wallet-outline"
+                    size={18}
+                    color={colors.textMuted}
+                  />
+                  <Text style={[type.body, { flex: 1 }]}>Security deposit</Text>
+                  <Text style={styles.value}>
+                    {property.security_deposit == null
+                      ? "Not specified"
+                      : `₱${property.security_deposit.toLocaleString("en-PH")}`}
+                  </Text>
+                </View>
+                {utilities.map(([name, icon, included]) => (
+                  <View key={name} style={styles.line}>
+                    <Ionicons name={icon} size={18} color={colors.textMuted} />
+                    <Text style={[type.body, { flex: 1 }]}>{name}</Text>
+                    <Text
+                      style={[
+                        styles.value,
+                        !included && { color: colors.textMuted },
+                      ]}
+                    >
+                      {included ? "Included" : "Not included"}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              <Text style={styles.heading}>Amenities</Text>
+              {amenities.length ? (
+                <View style={styles.wrap}>
+                  {amenities.map((a) => (
+                    <View key={a.id} style={styles.amenity}>
+                      {a.icon && a.icon in Ionicons.glyphMap && (
+                        <Ionicons
+                          name={a.icon as IconName}
+                          size={15}
+                          color={colors.textMuted}
+                        />
+                      )}
+                      <Text style={styles.amenityText}>{a.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={type.body}>No amenities listed.</Text>
+              )}
+
+              <Text style={styles.heading}>Available rooms</Text>
+              {own && (
+                <Notice
+                  icon="information-circle-outline"
+                  title={ownPropertyMessage}
+                  message="This is how tenants see your listing."
+                />
+              )}
+              {property.rooms.length ? (
+                property.rooms.map((room) => (
+                  <View key={room.id} style={styles.room}>
+                    <View style={styles.roomHeader}>
+                      <Text style={[type.subheading, { flex: 1 }]}>
+                        {room.name}
+                      </Text>
+                      <Price value={room.monthly_rent} />
+                    </View>
+                    {!!room.description && (
+                      <Text style={type.body}>{room.description}</Text>
+                    )}
+                    <View style={styles.wrap}>
+                      <View style={styles.row}>
+                        <Ionicons
+                          name="people-outline"
+                          size={15}
+                          color={colors.textMuted}
+                        />
+                        <Text style={type.caption}>
+                          Capacity: {room.capacity}
+                        </Text>
+                      </View>
+                      <View style={styles.row}>
+                        <Ionicons
+                          name="bed-outline"
+                          size={15}
+                          color={colors.textMuted}
+                        />
+                        <Text style={type.caption}>
+                          Available slots: {room.available_slots}
+                        </Text>
+                      </View>
+                    </View>
+                    {!own && (
+                      <Button
+                        title="Apply for this room"
+                        variant="secondary"
+                        accessibilityLabel={`Apply for ${room.name}`}
+                        onPress={() => apply(room.id)}
                       />
                     )}
-                    <Text style={styles.body}>{a.name}</Text>
                   </View>
                 ))
-            ) : (
-              <Text style={styles.body}>No amenities listed.</Text>
-            )}
-            <Text style={styles.heading}>Available rooms</Text>
-            {property.rooms.length ? (
-              property.rooms.map((room) => (
-                <View key={room.id} style={styles.room}>
-                  <Text style={styles.heading}>{room.name}</Text>
-                  {!!room.description && (
-                    <Text style={styles.body}>{room.description}</Text>
-                  )}
-                  <Text style={styles.price}>
-                    {rentLabel(room.monthly_rent)}
-                  </Text>
-                  <Text style={styles.body}>
-                    Capacity: {room.capacity} · Available slots:{" "}
-                    {room.available_slots}
-                  </Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.body}>No rooms are currently available.</Text>
-            )}
-          </>
-        )}
+              ) : (
+                <Text style={type.body}>No rooms are currently available.</Text>
+              )}
+            </>
+          )}
+        </View>
       </ScrollView>
+      {property && !own && (
+        <View style={styles.bar}>
+          <View style={{ flex: 1 }}>
+            <Text style={type.caption}>Monthly rent from</Text>
+            <Price value={property.monthly_rent} />
+          </View>
+          <Button
+            title="Apply"
+            accessibilityLabel="Apply to this property"
+            disabled={!property.rooms.length}
+            style={{ minWidth: 132 }}
+            onPress={() => apply()}
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: { padding: 24, gap: 12, paddingBottom: 40 },
-  title: { fontSize: 28, fontWeight: "700", color: "#0F172A" },
-  heading: { fontSize: 18, fontWeight: "700", color: "#0F172A", marginTop: 12 },
-  body: { color: "#64748B", fontSize: 14, lineHeight: 21 },
-  price: { color: "#1D4ED8", fontSize: 18, fontWeight: "700" },
-  photo: {
-    width: 280,
-    height: 190,
-    backgroundColor: "#E2E8F0",
-    borderRadius: 16,
-    marginRight: 12,
+  safe: { flex: 1, backgroundColor: colors.surface },
+  scroll: { paddingBottom: spacing.xxl },
+  photo: { height: 280, backgroundColor: colors.placeholder },
+  overlay: {
+    position: "absolute",
+    top: spacing.md,
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
-  room: {
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 16,
-    padding: 16,
-    gap: 8,
+  count: {
+    position: "absolute",
+    right: spacing.lg,
+    bottom: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(15,23,42,0.7)",
+  },
+  countText: { color: colors.surface, fontSize: 12, fontWeight: "600" },
+  content: { padding: spacing.xl, gap: spacing.sm },
+  row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  wrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  heading: { ...type.heading, marginTop: spacing.lg },
+  panel: { ...card, paddingHorizontal: spacing.lg },
+  line: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  value: { fontSize: 14, fontWeight: "600", color: colors.text },
+  amenity: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.neutralSoft,
+  },
+  amenityText: { fontSize: 13, color: colors.text },
+  room: { ...card, padding: spacing.lg, gap: spacing.sm },
+  roomHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
   },
 });

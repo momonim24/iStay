@@ -178,7 +178,7 @@ export default function OwnerPropertiesScreen() {
                   ]}
                 >
                   <Image
-                    source={require("../../../assets/images/logo_gray.png")}
+                    source={require("../../../assets/images/placeholder-logo.png")}
                     style={styles.placeholderLogo}
                     resizeMode="contain"
                   />

@@ -9,5 +9,6 @@ export function authDestination(session: Session | null, recovering: boolean) {
   if (session && recovering) return "/(auth)/reset-password" as const;
   if (isVerifiedSession(session)) return "/(tenant)/(tabs)" as const;
   if (session) return "/(auth)/verify-email" as const;
-  return "/(auth)/welcome" as const;
+  // Signed-out visitors browse the tenant marketplace as guests.
+  return "/(tenant)/(tabs)" as const;
 }

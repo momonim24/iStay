@@ -137,7 +137,7 @@ test("route gates deny missing, anonymous and unconfirmed sessions", () => {
     isVerifiedSession({ user: { ...session().user, is_anonymous: true } }),
     false,
   );
-  assert.equal(authDestination(null, false), "/(auth)/welcome");
+  assert.equal(authDestination(null, false), "/(tenant)/(tabs)");
   assert.equal(authDestination(session(false), false), "/(auth)/verify-email");
 });
 test("confirmed email and Google sessions reach Home; recovery takes priority", () => {
@@ -149,7 +149,7 @@ test("confirmed email and Google sessions reach Home; recovery takes priority", 
     true,
   );
   assert.equal(authDestination(session(), true), "/(auth)/reset-password");
-  assert.equal(authDestination(null, true), "/(auth)/welcome");
+  assert.equal(authDestination(null, true), "/(tenant)/(tabs)");
 });
 test("editable metadata cannot bypass email verification", () => {
   assert.equal(

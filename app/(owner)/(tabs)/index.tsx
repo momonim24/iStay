@@ -1,303 +1,324 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../../src/auth/useAuth";
 import {
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+  Badge,
+  Button,
+  Notice,
+  SectionHeader,
+  statusStyles,
+  type IconName,
+} from "../../../src/components/ui";
+import {
+  card,
+  colors,
+  spacing,
+  type,
+} from "../../../src/constants/ui";
+import { requireSupabase } from "../../../src/lib/supabase";
+import { fetchLandlordApplications } from "../../../src/services/application.service";
+import type { ApplicationDetails } from "../../../src/types/application";
+
+type Listing = { id: string; status: string; verified: boolean };
+const label = (status: string) =>
+  status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown";
 
 export default function OwnerDashboard() {
+  const { user } = useAuth();
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [applications, setApplications] = useState<ApplicationDetails[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+      let active = true;
+      setLoading(true);
+      setError("");
+      const load = async () => {
+        const { data, error } = await requireSupabase()
+          .from("properties")
+          .select("id,status,verified")
+          .eq("owner_id", user.id);
+        if (error) throw error;
+        const rows = await fetchLandlordApplications();
+        if (!active) return;
+        setListings((data ?? []) as Listing[]);
+        setApplications(rows);
+      };
+      void load()
+        .catch((cause: unknown) => {
+          console.error("Failed to load dashboard:", cause);
+          if (active)
+            setError("Unable to load your dashboard. Please try again.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, [user?.id, revision]),
+  );
+
+  // Every figure below is counted from the landlord's own rows.
+  const live = listings.filter((l) => l.status === "active" && l.verified);
+  const pending = applications.filter((a) => a.status === "pending");
+  const byStatus = new Map<string, number>();
+  for (const listing of listings)
+    byStatus.set(listing.status, (byStatus.get(listing.status) ?? 0) + 1);
+  const unverified = listings.filter((l) => !l.verified).length;
+  const value = (count: number) => (loading || error ? "—" : String(count));
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.brand}>iStay</Text>
-            <Text style={styles.mode}>Property Management</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.logo}>iStay</Text>
+            <Text style={type.caption}>Landlord Mode</Text>
           </View>
+          <Button
+            title="Add Property"
+            icon="add"
+            onPress={() => router.push("/(owner)/property/add")}
+          />
+        </View>
 
-          <Pressable style={styles.notification}>
+        {!!error && (
+          <Notice icon="cloud-offline-outline" title={error} tone="danger">
+            <Button
+              title="Retry"
+              variant="secondary"
+              onPress={() => setRevision((r) => r + 1)}
+            />
+          </Notice>
+        )}
+
+        <View style={styles.stats}>
+          <Stat
+            icon="business-outline"
+            value={value(listings.length)}
+            label="Properties"
+            onPress={() => router.push("/(owner)/(tabs)/properties")}
+          />
+          <Stat
+            icon="eye-outline"
+            value={value(live.length)}
+            label="Live listings"
+            onPress={() => router.push("/(owner)/(tabs)/properties")}
+          />
+          <Stat
+            icon="time-outline"
+            value={value(pending.length)}
+            label="Pending applications"
+            onPress={() => router.push("/(owner)/(tabs)/applications")}
+          />
+          <Stat
+            icon="document-text-outline"
+            value={value(applications.length)}
+            label="All applications"
+            onPress={() => router.push("/(owner)/(tabs)/applications")}
+          />
+        </View>
+
+        <SectionHeader
+          title="Pending applications"
+          action="View all"
+          onAction={() => router.push("/(owner)/(tabs)/applications")}
+        />
+        {!loading && !error && !pending.length && (
+          <Notice
+            icon="checkmark-done-outline"
+            title="You're all caught up"
+            message="New rental applications will appear here."
+          />
+        )}
+        {pending.slice(0, 3).map((application) => (
+          <Pressable
+            key={application.id}
+            accessibilityRole="button"
+            style={styles.item}
+            onPress={() =>
+              router.push({
+                pathname: "/(owner)/application/[id]",
+                params: { id: application.id },
+              })
+            }
+          >
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={type.subheading} numberOfLines={1}>
+                {application.property?.name ?? "Property"}
+              </Text>
+              <Text style={type.caption} numberOfLines={1}>
+                {application.tenantName ?? "Applicant"}
+                {application.room ? ` · ${application.room.name}` : ""}
+              </Text>
+              <Badge {...statusStyles.pending} />
+            </View>
             <Ionicons
-              name="notifications-outline"
-              size={23}
-              color="#172554"
+              name="chevron-forward"
+              size={20}
+              color={colors.textMuted}
             />
           </Pressable>
-        </View>
+        ))}
 
-        <Text style={styles.title}>Owner Dashboard</Text>
-
-        <Text style={styles.subtitle}>
-          Manage your properties and rental activity.
-        </Text>
-
-        {/* OVERVIEW */}
-
-        <Text style={styles.sectionTitle}>Overview</Text>
-
-        <View style={styles.statsGrid}>
-          <StatCard
+        <SectionHeader
+          title="Listing status"
+          action="Manage"
+          onAction={() => router.push("/(owner)/(tabs)/properties")}
+        />
+        {!loading && !error && !listings.length ? (
+          <Notice
             icon="business-outline"
-            value="—"
-            label="Properties"
-          />
-
-          <StatCard
-            icon="document-text-outline"
-            value="—"
-            label="Applications"
-          />
-
-          <StatCard
-            icon="people-outline"
-            value="—"
-            label="Tenants"
-          />
-
-          <StatCard
-            icon="construct-outline"
-            value="—"
-            label="Maintenance"
-          />
-        </View>
-
-        {/* QUICK ACTIONS */}
-
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-
-        <Pressable
-          style={styles.actionCard}
-          onPress={() =>
-            router.push("/(owner)/(tabs)/properties")
-          }
-        >
-          <View style={styles.actionIcon}>
-            <Ionicons
-              name="business-outline"
-              size={25}
-              color="#1D4ED8"
+            title="No properties yet"
+            message="Add your first property to start receiving applications."
+            tone="brand"
+          >
+            <Button
+              title="Add Property"
+              icon="add"
+              onPress={() => router.push("/(owner)/property/add")}
             />
+          </Notice>
+        ) : (
+          <View style={styles.panel}>
+            {[...byStatus].map(([status, count]) => (
+              <View key={status} style={styles.line}>
+                <Text style={[type.body, { flex: 1 }]}>{label(status)}</Text>
+                <Text style={styles.count}>{count}</Text>
+              </View>
+            ))}
+            <View style={styles.line}>
+              <Text style={[type.body, { flex: 1 }]}>
+                Awaiting verification
+              </Text>
+              <Text style={styles.count}>{value(unverified)}</Text>
+            </View>
           </View>
+        )}
 
-          <View style={styles.actionContent}>
-            <Text style={styles.actionTitle}>
-              Manage Properties
-            </Text>
-
-            <Text style={styles.actionDescription}>
-              View and manage your rental listings.
-            </Text>
-          </View>
-
-          <Ionicons
-            name="chevron-forward"
-            size={21}
-            color="#64748B"
-          />
-        </Pressable>
-
-        <Pressable
-          style={styles.actionCard}
-          onPress={() =>
-            router.push("/(owner)/(tabs)/applications")
-          }
-        >
-          <View style={styles.actionIcon}>
-            <Ionicons
-              name="document-text-outline"
-              size={25}
-              color="#1D4ED8"
-            />
-          </View>
-
-          <View style={styles.actionContent}>
-            <Text style={styles.actionTitle}>
-              Applications
-            </Text>
-
-            <Text style={styles.actionDescription}>
-              Review rental applications from potential tenants.
-            </Text>
-          </View>
-
-          <Ionicons
-            name="chevron-forward"
-            size={21}
-            color="#64748B"
-          />
-        </Pressable>
+        <SectionHeader title="Quick actions" />
+        <Action
+          icon="business-outline"
+          title="Manage properties"
+          description="Edit listings, rooms, photos and amenities."
+          onPress={() => router.push("/(owner)/(tabs)/properties")}
+        />
+        <Action
+          icon="document-text-outline"
+          title="Review applications"
+          description="Approve or reject rental applications."
+          onPress={() => router.push("/(owner)/(tabs)/applications")}
+        />
+        <Action
+          icon="swap-horizontal"
+          title="Switch to Tenant Mode"
+          description="Browse the marketplace as a renter."
+          onPress={() => router.replace("/(tenant)/(tabs)")}
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function StatCard({
+function Stat({
   icon,
   value,
   label,
+  onPress,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IconName;
   value: string;
   label: string;
+  onPress: () => void;
 }) {
   return (
-    <View style={styles.statCard}>
-      <View style={styles.statIcon}>
-        <Ionicons
-          name={icon}
-          size={22}
-          color="#1D4ED8"
-        />
-      </View>
-
+    <Pressable accessibilityRole="button" style={styles.stat} onPress={onPress}>
+      <Ionicons name={icon} size={20} color={colors.brand} />
       <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+      <Text style={type.caption}>{label}</Text>
+    </Pressable>
+  );
+}
+function Action({
+  icon,
+  title,
+  description,
+  onPress,
+}: {
+  icon: IconName;
+  title: string;
+  description: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable accessibilityRole="button" style={styles.item} onPress={onPress}>
+      <View style={styles.actionIcon}>
+        <Ionicons name={icon} size={22} color={colors.brand} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={type.subheading}>{title}</Text>
+        <Text style={type.caption}>{description}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-  },
-
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-
+  safe: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 10,
-    marginBottom: 27,
+    gap: spacing.md,
+    marginBottom: spacing.lg,
   },
-
-  brand: {
-    fontSize: 28,
+  logo: {
+    fontSize: 26,
     fontWeight: "800",
-    color: "#172554",
+    color: colors.brand,
+    letterSpacing: -0.8,
   },
-
-  mode: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 1,
+  stats: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  stat: {
+    ...card,
+    flexGrow: 1,
+    flexBasis: "45%",
+    padding: spacing.lg,
+    gap: 4,
   },
-
-  notification: {
-    width: 43,
-    height: 43,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  title: {
-    fontSize: 27,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-
-  subtitle: {
-    color: "#64748B",
-    fontSize: 13,
-    marginTop: 5,
-    marginBottom: 27,
-  },
-
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 13,
-  },
-
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 28,
-  },
-
-  statCard: {
-    width: "48%",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 17,
-    padding: 16,
-    marginBottom: 12,
-  },
-
-  statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 13,
-  },
-
-  statValue: {
-    color: "#0F172A",
-    fontSize: 23,
-    fontWeight: "800",
-  },
-
-  statLabel: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  actionCard: {
+  statValue: { fontSize: 26, fontWeight: "800", color: colors.text },
+  item: {
+    ...card,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 17,
-    padding: 15,
-    marginBottom: 11,
+    gap: spacing.md,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
   },
-
   actionIcon: {
-    width: 49,
-    height: 49,
-    borderRadius: 15,
-    backgroundColor: "#EFF6FF",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 13,
+    backgroundColor: colors.brandSoft,
   },
-
-  actionContent: {
-    flex: 1,
+  panel: { ...card, paddingHorizontal: spacing.lg },
+  line: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
   },
-
-  actionTitle: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  actionDescription: {
-    color: "#64748B",
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 3,
-  },
+  count: { fontSize: 15, fontWeight: "700", color: colors.text },
 });

@@ -1,92 +1,28 @@
-import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { tabIcon, useTabBarOptions } from "../../../src/components/ui";
 
 export default function OwnerTabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: "#1D4ED8",
-        tabBarInactiveTintColor: "#64748B",
-        tabBarStyle: {
-          height: 65,
-          paddingTop: 6,
-          paddingBottom: 7,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "600",
-        },
-      }}
-    >
+    <Tabs screenOptions={useTabBarOptions()}>
       <Tabs.Screen
         name="index"
-        options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="grid-outline"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
+        options={{ title: "Dashboard", tabBarIcon: tabIcon("grid") }}
       />
-
       <Tabs.Screen
         name="properties"
-        options={{
-          title: "Properties",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="business-outline"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
+        options={{ title: "Properties", tabBarIcon: tabIcon("business") }}
       />
-
       <Tabs.Screen
         name="applications"
-        options={{
-          title: "Applications",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="document-text-outline"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
+        options={{ title: "Applications", tabBarIcon: tabIcon("document-text") }}
       />
-
       <Tabs.Screen
         name="maintenance"
-        options={{
-          title: "Maintenance",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="construct-outline"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
+        options={{ title: "Maintenance", tabBarIcon: tabIcon("construct") }}
       />
-
       <Tabs.Screen
         name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons
-              name="person-outline"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
+        options={{ title: "Profile", tabBarIcon: tabIcon("person") }}
       />
     </Tabs>
   );

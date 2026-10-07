@@ -2,13 +2,29 @@
 
 ## Implemented behavior
 
-The existing `/property/apply` route receives `propertyId` through a typed navigation object from Property Details. It reloads the property from tenant discovery rather than trusting navigation data. Available rooms are selectable; a NULL-room **No specific room / Property inquiry** option is always offered because no previous room-selection requirement exists in this checkout. A supplied `roomId` is checked against the fetched available rooms. The optional message is trimmed, capped at 2,000 characters, and stored as NULL when blank.
+The existing `/property/apply` route receives `propertyId` through a typed navigation object from Property Details. It reloads the property from tenant discovery rather than trusting navigation data. The tenant must select an available room (`available = true` and `available_slots > 0`); the earlier NULL-room "property inquiry" option was removed and the service rejects a submission without a room. Property Details also offers **Apply for this room**, which preselects the room. A supplied `roomId` is checked against the fetched available rooms. Before submitting, a **Review** step shows property, location, room, rent, capacity, available slots, security deposit (when set) and the message. The optional message is trimmed, capped at 2,000 characters, and stored as NULL when blank.
 
-Submission derives identity with the existing authenticated client's `auth.getUser()`. Callers cannot provide a tenant ID or status. Before insertion it reloads eligibility (`active`, verified), checks the selected room's parent/availability/slots, and queries pending/approved applications for the exact tenant/property/room combination. NULL-room checks use `.is("room_id", null)`. Pending and approved conflicts block submission; rejected history remains untouched and may be followed by a new submission. A synchronous screen guard and service-level per-user/property/room lock prevent double taps in this client. **These checks do not prevent races between devices or sessions.**
+Submission derives identity with the existing authenticated client's `auth.getUser()`. Callers cannot provide a tenant ID or status. Before insertion it reloads eligibility (`active`, verified), checks the selected room's parent/availability/slots, and queries pending/approved applications for the exact tenant/property/room combination. Pending and approved conflicts block submission; rejected and cancelled history remains untouched and may be followed by a new submission. A synchronous screen guard and service-level per-user/property/room lock prevent double taps in this client. **These checks do not prevent races between devices or sessions.**
 
 After successful submission, the tenant is sent to My Applications with a success notice. Tenant reads explicitly filter `tenant_id`; owner reads first obtain authenticated-owned property IDs, then query only those IDs. Application/property/room reads remain subject to existing RLS. Property and room embeds are left joins so inaccessible or deleted references do not hide tenant history. Applicant names use a separate `profiles(id, full_name)` read; denied or filtered profile reads fall back to the tenant identifier already present in the application. No email/phone/profile privacy changes are introduced.
 
-Both lists show pending/approved/rejected status, submission date, message, location, cover image when accessible, and room information. They refresh on focus and provide loading, empty, error/retry and explicit Refresh controls. Cleanup prevents late responses from updating a departed or refreshed screen. Owner actions require an inline confirmation that works on Android and web. After approval/rejection, buttons disappear following the reload. Each mutation checks authenticated ownership, only updates `status` and `updated_at`, and filters the update by application ID, property ID and **current `pending` status**. A concurrent decision yields a friendly refresh message rather than overwriting it.
+Both lists show a pending/approved/rejected/cancelled status badge, rent, submission date, message, location, cover image when accessible, and room information, with All/Pending/Approved/Rejected/Cancelled filters. **View details** opens `/(tenant)/application/[id]` or `/(owner)/application/[id]`; both reload the application scoped to the signed-in tenant or to a property the signed-in landlord owns, so changing the UUID in the route shows "not found". They refresh on focus and provide loading, empty, error/retry and explicit Refresh controls. Cleanup prevents late responses from updating a departed or refreshed screen. Owner actions require an inline confirmation that works on Android and web. After approval/rejection, buttons disappear following the reload. Each mutation checks authenticated ownership, only updates `status` and `updated_at`, and filters the update by application ID, property ID and **current `pending` status**. A concurrent decision yields a friendly refresh message rather than overwriting it.
+
+## Status transitions
+
+`canTransition()` in `src/services/application.service.ts` is the single rule table; every other change is refused.
+
+| Actor | From | To |
+| --- | --- | --- |
+| Tenant (own application) | pending | cancelled |
+| Landlord (own property) | pending | approved |
+| Landlord (own property) | pending | rejected |
+
+Tenant cancellation requires an inline confirmation, updates only `status` and `updated_at`, and filters the update by application ID, the authenticated `tenant_id` and current `pending` status. Approved, rejected and cancelled applications cannot be cancelled. Cancellation needs database support that could not be verified from the client: see **Required for cancellation** below.
+
+## Schema discovered
+
+Zero-row reads through the public key confirmed `applications` has exactly `id, tenant_id, property_id, room_id, message, status, created_at, updated_at`. There is no move-in date or landlord-note column, so the form only collects a room and an optional message. `status` is text, not an enum; any CHECK constraint on it is not visible to the client. Relationships to `profiles`, `properties` and `rooms` exist.
 
 The requested owner Applications route did not exist. It was added at `app/(owner)/(tabs)/applications.tsx`, accessible using **View Rental Applications** on the current Your Listings screen. The existing owner Stack and mode switching remain intact; no owner navigation redesign was introduced.
 
@@ -53,6 +69,68 @@ where n.nspname = 'public' and p.prokind = 'f'
 ```
 
 Required capabilities are tenant SELECT/INSERT for their own applications; landlord SELECT and pending-only UPDATE for applications of their own properties; property/room SELECT sufficient for eligibility and ownership checks. **Profile visibility need not expand:** a missing applicant name has a UI fallback. A tenant can retain an application even if an inactive property's details are hidden under existing policies.
+
+## Required for cancellation — not applied
+
+Run the read-only inspection queries above first. Cancellation works only if both of these hold.
+
+1. `status` must accept `'cancelled'`. If `pg_constraint` shows a CHECK listing only pending/approved/rejected, the update fails with `23514` and the app reports "Cancelling applications is not enabled yet". Replace the constraint, using the name the inspection query returned:
+
+```sql
+alter table public.applications drop constraint applications_status_check; -- use the actual name
+alter table public.applications add constraint applications_status_check
+  check (status in ('pending', 'approved', 'rejected', 'cancelled'));
+```
+
+2. A tenant must be allowed to UPDATE their own pending application to cancelled, and nothing else. Without such a policy the update silently affects no rows and the app reports that the application could not be cancelled.
+
+```sql
+create policy istay_applications_tenant_cancel
+on public.applications for update to authenticated
+using (tenant_id = (select auth.uid()) and status = 'pending')
+with check (tenant_id = (select auth.uid()) and status = 'cancelled');
+```
+
+The `grant update (status, updated_at)` in the baseline below already covers the columns this needs. Check that no existing broader UPDATE policy lets a tenant set `approved`: permissive policies combine with OR.
+
+## Required to block self-applications — not applied
+
+Every account has tenant capabilities, so a landlord can browse in Tenant Mode. The app refuses an application when the authenticated user owns the property (Property Details hides Apply, the Apply route shows "You cannot apply to your own property.", and `submitApplication` rejects it). A direct API call bypasses all of that, so the rule also belongs in the database. A CHECK constraint cannot reference another table; use either option.
+
+Option A — add the condition to the tenant INSERT policy (already included in the baseline below). Only effective if no other permissive INSERT policy on `applications` allows the row.
+
+Option B — a trigger, which holds regardless of which policies exist:
+
+```sql
+create or replace function public.applications_block_self_application()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (
+    select 1 from public.properties p
+    where p.id = new.property_id and p.owner_id = new.tenant_id
+  ) then
+    raise exception 'You cannot apply to your own property.'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end
+$$;
+revoke execute on function public.applications_block_self_application()
+  from public, anon, authenticated;
+
+create trigger applications_block_self_application
+before insert or update of tenant_id, property_id on public.applications
+for each row execute function public.applications_block_self_application();
+```
+
+Find any existing self-applications first:
+
+```sql
+select a.id, a.status, a.created_at
+from public.applications a
+join public.properties p on p.id = a.property_id
+where p.owner_id = a.tenant_id;
+```
 
 ## Conditional application policy/permission baseline — manual review only
 
@@ -107,9 +185,10 @@ with check (
   and exists (
     select 1 from public.properties p
     where p.id = applications.property_id and p.status = 'active' and p.verified = true
+      and p.owner_id <> (select auth.uid())
   )
   and (
-    room_id is null or exists (
+    exists (
       select 1 from public.rooms r
       where r.id = applications.room_id
         and r.property_id = applications.property_id
@@ -117,6 +196,11 @@ with check (
     )
   )
 );
+
+create policy istay_applications_tenant_cancel
+on public.applications for update to authenticated
+using (tenant_id = (select auth.uid()) and status = 'pending')
+with check (tenant_id = (select auth.uid()) and status = 'cancelled');
 
 create policy istay_applications_owner_decide
 on public.applications for update to authenticated
@@ -192,6 +276,8 @@ Submitting never changes room slots. Approval also leaves slots unchanged: no ex
 ## Verification and manual checklist (Android and web)
 
 Automated tests use mocked transport and exercise the production TypeScript, not a live Supabase project. Run `npm run typecheck`, `node --test tests/*.test.cjs`, and `node --test tests/application.test.cjs`.
+
+Checklist items below that mention a "Property inquiry" predate the required-room rule: a room must now be selected, and submission goes through the Review step. Also verify: a pending application can be cancelled from My Applications and from its details screen after confirmation; approved/rejected/cancelled ones offer no Cancel; a cancelled room application can be submitted again; the landlord sees the cancelled status and no Approve/Reject on it; the status filters work in both modes.
 
 1. Reload the updated app on Android. Repeat the checklist using the web build. Use a tenant, owner A, and unrelated owner B with verified authenticated accounts.
 2. From Home, Search, and Favorites, open an active verified property and tap Apply. Verify property name/type/location/image/rent and available room details. Only available rooms with positive slots should appear.

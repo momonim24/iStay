@@ -284,16 +284,28 @@ test("valid pending submission derives identity and whitelists payload", async (
   assert.equal(f.rooms[0].available_slots, 1);
   assert.ok(!f.calls.some((c) => c.table === "rooms" && c.action !== "read"));
 });
-test("blank optional message and property-level inquiry use NULL", async () => {
+test("blank optional message is stored as NULL; a room is always required", async () => {
   const f = fixture();
-  await f.service.submitApplication({ propertyId: PROPERTY, message: "   " });
-  assert.equal(f.applications[0].room_id, null);
+  await f.service.submitApplication({
+    propertyId: PROPERTY,
+    roomId: ROOM,
+    message: "   ",
+  });
   assert.equal(f.applications[0].message, null);
   const check = f.calls.find(
     (c) => c.table === "applications" && c.action === "read",
   );
-  assert.deepEqual(check.is, { room_id: null });
-  assert.ok(!("room_id" in check.eq));
+  assert.deepEqual(check.eq, {
+    tenant_id: TENANT,
+    property_id: PROPERTY,
+    room_id: ROOM,
+  });
+  for (const roomId of [undefined, null, ""])
+    await assert.rejects(
+      f.service.submitApplication({ propertyId: PROPERTY, roomId }),
+      /Choose an available room/,
+    );
+  assert.equal(f.inserts, 1);
 });
 for (const extra of [
   { status: "inactive" },
@@ -303,7 +315,7 @@ for (const extra of [
   test(`ineligible property rejects ${JSON.stringify(extra)}`, async () => {
     const f = fixture({ properties: [property(extra)] });
     await assert.rejects(
-      f.service.submitApplication({ propertyId: PROPERTY }),
+      f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
       /no longer available/,
     );
     assert.equal(f.inserts, 0);
@@ -327,41 +339,39 @@ for (const extra of [
     );
   });
 }
-test("deleted room rejects submission but a property inquiry remains possible", async () => {
+test("deleted room rejects submission", async () => {
   const f = fixture({ rooms: [] });
   await assert.rejects(
     f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
     /room/,
   );
-  await f.service.submitApplication({ propertyId: PROPERTY });
-  assert.equal(f.inserts, 1);
+  assert.equal(f.inserts, 0);
 });
 for (const status of ["pending", "approved"]) {
-  for (const roomId of [null, ROOM]) {
-    test(`${status} conflict is rejected for ${roomId ? "room" : "NULL room"}`, async () => {
-      const f = fixture({
-        applications: [application({ status, room_id: roomId })],
-      });
-      await assert.rejects(
-        f.service.submitApplication({ propertyId: PROPERTY, roomId }),
-        /already have/,
-      );
-      assert.equal(f.inserts, 0);
-      assert.equal(
-        (await f.service.findRelevantApplication(PROPERTY, roomId)).status,
-        status,
-      );
-    });
-  }
+  test(`duplicate ${status} application is detected and blocks submission`, async () => {
+    const f = fixture({ applications: [application({ status })] });
+    await assert.rejects(
+      f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
+      /already have/,
+    );
+    assert.equal(f.inserts, 0);
+    assert.equal(
+      (await f.service.findRelevantApplication(PROPERTY, ROOM)).status,
+      status,
+    );
+  });
 }
-test("rejected applications can be resubmitted without changing history", async () => {
-  const f = fixture({ applications: [application({ status: "rejected" })] });
-  await f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM });
-  assert.deepEqual(
-    f.applications.map((a) => a.status),
-    ["rejected", "pending"],
-  );
-});
+for (const status of ["rejected", "cancelled"]) {
+  test(`${status} applications can be resubmitted without changing history`, async () => {
+    const f = fixture({ applications: [application({ status })] });
+    assert.equal(await f.service.findRelevantApplication(PROPERTY, ROOM), null);
+    await f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM });
+    assert.deepEqual(
+      f.applications.map((a) => a.status),
+      [status, "pending"],
+    );
+  });
+}
 test("duplicate check does not block a different tenant or combination", async () => {
   const f = fixture({
     applications: [
@@ -383,11 +393,14 @@ test("simultaneous submits in this client cannot insert twice; lock releases aft
   assert.equal(f.inserts, 1);
   const failed = fixture({ properties: [] });
   await assert.rejects(
-    failed.service.submitApplication({ propertyId: PROPERTY }),
+    failed.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
     /no longer available/,
   );
   failed.properties.push(property());
-  await failed.service.submitApplication({ propertyId: PROPERTY });
+  await failed.service.submitApplication({
+    propertyId: PROPERTY,
+    roomId: ROOM,
+  });
   assert.equal(failed.inserts, 1);
 });
 test("tenant list and detail queries are scoped and ordered newest first", async () => {
@@ -547,7 +560,7 @@ test("invalid UUIDs and messages fail before any writes", async () => {
   const f = fixture();
   for (const propertyId of ["", "not-a-uuid", PROPERTY + ",status.eq.active"])
     await assert.rejects(
-      f.service.submitApplication({ propertyId }),
+      f.service.submitApplication({ propertyId, roomId: ROOM }),
       /invalid/,
     );
   await assert.rejects(
@@ -556,9 +569,12 @@ test("invalid UUIDs and messages fail before any writes", async () => {
   );
   await assert.rejects(f.service.fetchTenantApplication("bad"), /invalid/);
   await assert.rejects(f.service.approveApplication("bad"), /invalid/);
+  await assert.rejects(f.service.cancelApplication("bad"), /invalid/);
+  await assert.rejects(f.service.fetchLandlordApplication("bad"), /invalid/);
   await assert.rejects(
     f.service.submitApplication({
       propertyId: PROPERTY,
+      roomId: ROOM,
       message: "x".repeat(2001),
     }),
     /2,000/,
@@ -574,10 +590,12 @@ test("unauthenticated and anonymous callers cannot read or mutate", async () => 
   ]) {
     const f = fixture(options);
     for (const action of [
-      () => f.service.submitApplication({ propertyId: PROPERTY }),
+      () => f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
       () => f.service.fetchTenantApplications(),
       () => f.service.fetchLandlordApplications(),
+      () => f.service.fetchLandlordApplication(APPLICATION),
       () => f.service.approveApplication(APPLICATION),
+      () => f.service.cancelApplication(APPLICATION),
     ])
       await assert.rejects(action(), /sign in again/);
     assert.equal(f.calls.length, 0);
@@ -596,14 +614,33 @@ test("real query/network errors stay friendly and development diagnostics are lo
   }
   const propertyFailure = fixture({ propertyError: true });
   await assert.rejects(
-    propertyFailure.service.submitApplication({ propertyId: PROPERTY }),
+    propertyFailure.service.submitApplication({
+      propertyId: PROPERTY,
+      roomId: ROOM,
+    }),
     /Unable to check this property/,
   );
   const insertFailure = fixture({ fail: (c) => c.action === "insert" });
   await assert.rejects(
-    insertFailure.service.submitApplication({ propertyId: PROPERTY }),
+    insertFailure.service.submitApplication({
+      propertyId: PROPERTY,
+      roomId: ROOM,
+    }),
     /check My Applications/,
   );
+  for (const options of [{ fail: () => true }, { throw: () => true }]) {
+    const owner = fixture({ ...options, authId: OWNER });
+    await assert.rejects(
+      owner.service.fetchLandlordApplications(),
+      (e) => /Unable to/.test(e.message) && !/private/.test(e.message),
+    );
+    const tenant = fixture({ ...options, applications: [application()] });
+    await assert.rejects(
+      tenant.service.cancelApplication(APPLICATION),
+      (e) => /Unable to/.test(e.message) && !/private/.test(e.message),
+    );
+    assert.equal(tenant.applications[0].status, "pending");
+  }
 });
 test("unique-constraint conflict is friendly if the recommended index is installed", async () => {
   const f = fixture({
@@ -613,7 +650,7 @@ test("unique-constraint conflict is friendly if the recommended index is install
         : false,
   });
   await assert.rejects(
-    f.service.submitApplication({ propertyId: PROPERTY }),
+    f.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
     /already have/,
   );
 });
@@ -649,6 +686,173 @@ test("simultaneous landlord decisions cannot both succeed", async () => {
   ]);
   assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
   assert.equal(f.calls.filter((c) => c.action === "update").length, 1);
+});
+test("self-applications are rejected; a landlord can still apply to another landlord's property", async () => {
+  const own = fixture({ authId: OWNER });
+  await assert.rejects(
+    own.service.submitApplication({ propertyId: PROPERTY, roomId: ROOM }),
+    /cannot apply to your own property/,
+  );
+  assert.equal(own.inserts, 0);
+  assert.ok(!own.calls.some((c) => c.action === "insert"));
+  // OTHER is a landlord elsewhere; accounts keep their tenant capabilities.
+  const landlord = fixture({
+    authId: OTHER,
+    properties: [property(), property({ id: FOREIGN, owner_id: OTHER })],
+  });
+  const row = await landlord.service.submitApplication({
+    propertyId: PROPERTY,
+    roomId: ROOM,
+  });
+  assert.equal(row.tenant_id, OTHER);
+  assert.equal(landlord.inserts, 1);
+});
+test("status transition rules allow only the supported changes", () => {
+  const { canTransition } = fixture().service;
+  const statuses = ["pending", "approved", "rejected", "cancelled"];
+  const allowed = {
+    tenant: ["pending>cancelled"],
+    landlord: ["pending>approved", "pending>rejected"],
+  };
+  for (const role of ["tenant", "landlord"])
+    for (const from of statuses)
+      for (const to of statuses)
+        assert.equal(
+          canTransition(role, from, to),
+          allowed[role].includes(`${from}>${to}`),
+          `${role} ${from}>${to}`,
+        );
+  assert.equal(canTransition("landlord", "bogus", "approved"), false);
+});
+test("tenant can cancel their own pending application with a conditional update", async () => {
+  const f = fixture({ applications: [application()] });
+  const result = await f.service.cancelApplication(APPLICATION);
+  assert.equal(result.status, "cancelled");
+  const update = f.calls.find((c) => c.action === "update");
+  assert.deepEqual(update.eq, {
+    id: APPLICATION,
+    tenant_id: TENANT,
+    status: "pending",
+  });
+  assert.deepEqual(Object.keys(update.payload).sort(), [
+    "status",
+    "updated_at",
+  ]);
+  assert.equal(f.rooms[0].available_slots, 1);
+  assert.ok(f.calls.every((c) => c.table === "applications"));
+});
+for (const status of ["approved", "rejected", "cancelled"]) {
+  test(`tenant cannot cancel a ${status} application`, async () => {
+    const f = fixture({ applications: [application({ status })] });
+    await assert.rejects(
+      f.service.cancelApplication(APPLICATION),
+      /Only pending applications can be cancelled/,
+    );
+    assert.ok(!f.calls.some((c) => c.action === "update"));
+    assert.equal(f.applications[0].status, status);
+  });
+}
+test("tenant cannot cancel another tenant's or a missing application", async () => {
+  const f = fixture({ applications: [application({ tenant_id: OTHER })] });
+  await assert.rejects(
+    f.service.cancelApplication(APPLICATION),
+    /could not be found/,
+  );
+  await assert.rejects(
+    f.service.cancelApplication(FOREIGN),
+    /could not be found/,
+  );
+  assert.ok(!f.calls.some((c) => c.action === "update"));
+  assert.equal(f.applications[0].status, "pending");
+  // A landlord is not the applicant either, so cancellation is tenant-only.
+  const owner = fixture({ authId: OWNER, applications: [application()] });
+  await assert.rejects(
+    owner.service.cancelApplication(APPLICATION),
+    /could not be found/,
+  );
+  assert.equal(owner.applications[0].status, "pending");
+});
+test("cancellation cannot overwrite a decision made after the initial read", async () => {
+  const f = fixture({
+    applications: [application()],
+    before: (call, data) => {
+      if (call.action === "update") data.applications[0].status = "approved";
+    },
+  });
+  await assert.rejects(
+    f.service.cancelApplication(APPLICATION),
+    /could not be cancelled/,
+  );
+  assert.equal(f.applications[0].status, "approved");
+});
+test("cancellation blocked by RLS or a status constraint is not reported as success", async () => {
+  const silent = fixture({ applications: [application()], silentUpdate: true });
+  await assert.rejects(
+    silent.service.cancelApplication(APPLICATION),
+    /could not be cancelled/,
+  );
+  for (const code of ["23514", "42501"]) {
+    const f = fixture({
+      applications: [application()],
+      fail: (c) =>
+        c.action === "update" ? { code, message: "private check" } : false,
+    });
+    await assert.rejects(
+      f.service.cancelApplication(APPLICATION),
+      (e) => /not enabled yet/.test(e.message) && !/private/.test(e.message),
+    );
+    assert.equal(f.applications[0].status, "pending");
+  }
+});
+test("simultaneous cancellations in this client only update once", async () => {
+  const f = fixture({ applications: [application()] });
+  const results = await Promise.allSettled([
+    f.service.cancelApplication(APPLICATION),
+    f.service.cancelApplication(APPLICATION),
+  ]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  assert.equal(f.calls.filter((c) => c.action === "update").length, 1);
+});
+test("landlord cannot approve or reject a cancelled application", async () => {
+  const f = fixture({
+    authId: OWNER,
+    applications: [application({ status: "cancelled" })],
+  });
+  await assert.rejects(
+    f.service.approveApplication(APPLICATION),
+    /already been decided/,
+  );
+  await assert.rejects(
+    f.service.rejectApplication(APPLICATION),
+    /already been decided/,
+  );
+  assert.equal(f.applications[0].status, "cancelled");
+});
+test("landlord application details require ownership of the property", async () => {
+  const options = {
+    applications: [application({ message: "Hello" })],
+    profiles: [{ id: TENANT, full_name: "Tenant Name" }],
+  };
+  const owner = fixture({ ...options, authId: OWNER });
+  const details = await owner.service.fetchLandlordApplication(APPLICATION);
+  assert.equal(details.id, APPLICATION);
+  assert.equal(details.tenantName, "Tenant Name");
+  assert.equal(details.room.capacity, 2);
+  assert.equal(
+    owner.calls.find((c) => c.table === "properties").eq.owner_id,
+    OWNER,
+  );
+  const other = fixture({ ...options, authId: OTHER });
+  assert.equal(await other.service.fetchLandlordApplication(APPLICATION), null);
+  assert.ok(!other.calls.some((c) => c.table === "profiles"));
+  assert.equal(await owner.service.fetchLandlordApplication(FOREIGN), null);
+});
+test("empty application lists resolve to empty arrays", async () => {
+  assert.deepEqual(await fixture().service.fetchTenantApplications(), []);
+  assert.deepEqual(
+    await fixture({ authId: OWNER }).service.fetchLandlordApplications(),
+    [],
+  );
 });
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -734,6 +938,23 @@ const native = {
   View: "View",
   StyleSheet: { create: (styles) => styles },
 };
+const uiMock = {
+  Badge: "Badge",
+  Chip: "Chip",
+  statusStyles: Object.fromEntries(
+    ["Pending", "Approved", "Rejected", "Cancelled"].map((label) => [
+      label.toLowerCase(),
+      { label, icon: "ellipse", color: "#000", background: "#fff" },
+    ]),
+  ),
+};
+function chip(tree, label) {
+  const element = nodes(tree).find(
+    (node) => node.type === "Chip" && node.props.label === label,
+  );
+  assert.ok(element, `Missing chip: ${label}`);
+  return element;
+}
 function nodes(tree) {
   if (!tree || typeof tree !== "object") return [];
   if (Array.isArray(tree)) return tree.flatMap(nodes);
@@ -798,6 +1019,166 @@ test("focus application hook ignores stale reads and exposes errors/retry", asyn
   assert.match(result.error, /sign in again/);
   assert.equal(requests.length, 4);
 });
+test("application hook loads a single application by id for the detail screen", async () => {
+  for (const [mode, found] of [
+    ["tenant", application()],
+    ["landlord", null],
+  ]) {
+    const runtime = hookRuntime(),
+      requested = [];
+    const { useApplications } = load("src/hooks/use-applications.ts", {
+      react: runtime.react,
+      "expo-router": { useFocusEffect: runtime.useFocusEffect },
+      "../auth/useAuth": { useAuth: () => ({ user: { id: TENANT } }) },
+      "../services/application.service": {
+        fetchTenantApplication: async (id) => (
+          requested.push(["tenant", id]),
+          found
+        ),
+        fetchLandlordApplication: async (id) => (
+          requested.push(["landlord", id]),
+          found
+        ),
+        fetchTenantApplications: () => assert.fail("list read"),
+        fetchLandlordApplications: () => assert.fail("list read"),
+      },
+    });
+    runtime.render(() => useApplications(mode, APPLICATION));
+    await flush();
+    const result = runtime.render(() => useApplications(mode, APPLICATION));
+    assert.deepEqual(requested, [[mode, APPLICATION]]);
+    assert.equal(result.applications.length, found ? 1 : 0);
+    assert.equal(result.loading, false);
+  }
+});
+function listScreen(options) {
+  const runtime = hookRuntime();
+  const state = { rows: options.rows, refreshes: 0, navigations: [] };
+  const { ApplicationList } = load("src/components/application-list.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    react: runtime.react,
+    "react-native": native,
+    "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+    "expo-router": {
+      useFocusEffect: runtime.useFocusEffect,
+      router: {
+        canGoBack: () => true,
+        back() {},
+        push: (value) => state.navigations.push(value),
+      },
+    },
+    "../auth/useAuth": { useAuth: () => ({ user: { id: options.userId } }) },
+    "../hooks/use-applications": {
+      useApplications: () => ({
+        applications: state.rows,
+        loading: false,
+        error: "",
+        refresh: () => state.refreshes++,
+      }),
+    },
+    "../services/application.service": options.service,
+    "../services/tenant-discovery.service": {
+      rentLabel: (value) => `P${value}`,
+    },
+    "./ui": uiMock,
+  });
+  const render = () => runtime.render(() => ApplicationList(options.props));
+  render();
+  return { state, render };
+}
+test("tenant list requires confirmation to cancel, suppresses double taps and never offers landlord actions", async () => {
+  const f = fixture({
+    applications: [
+      application(),
+      application({
+        id: OTHER,
+        status: "approved",
+        created_at: "2026-10-01T00:00:00Z",
+      }),
+    ],
+  });
+  const cancelled = [];
+  let resolveCancel;
+  const screen = listScreen({
+    rows: await f.service.fetchTenantApplications(),
+    userId: TENANT,
+    props: { mode: "tenant" },
+    service: {
+      approveApplication: () => assert.fail("tenant approved"),
+      rejectApplication: () => assert.fail("tenant rejected"),
+      cancelApplication: (id) => {
+        cancelled.push(id);
+        return new Promise((resolve) => {
+          resolveCancel = resolve;
+        });
+      },
+    },
+  });
+  let tree = screen.render();
+  const labels = () =>
+    nodes(tree)
+      .filter((node) => node.type === "Pressable")
+      .map(textOf);
+  assert.ok(!labels().some((label) => ["Approve", "Reject"].includes(label)));
+  // Only the pending application can be cancelled.
+  assert.equal(labels().filter((l) => l === "Cancel application").length, 1);
+  button(tree, "Cancel application").props.onPress();
+  tree = screen.render();
+  assert.equal(cancelled.length, 0);
+  button(tree, "Not now").props.onPress();
+  tree = screen.render();
+  assert.equal(cancelled.length, 0);
+  button(tree, "Cancel application").props.onPress();
+  tree = screen.render();
+  button(tree, "Confirm").props.onPress();
+  button(tree, "Confirm").props.onPress();
+  assert.deepEqual(cancelled, [APPLICATION]);
+  resolveCancel();
+  await flush();
+  tree = screen.render();
+  assert.equal(screen.state.refreshes, 1);
+  assert.match(textOf(tree), /Application cancelled/);
+  // Status filters and the details link.
+  // Status is conveyed by a labelled badge with an icon, not colour alone.
+  const badges = () =>
+    nodes(tree)
+      .filter((node) => typeof node.type === "function")
+      .flatMap((card) => nodes(card.type(card.props)))
+      .filter((node) => node.type === "Badge")
+      .map((node) => [node.props.label, typeof node.props.icon]);
+  assert.deepEqual(badges(), [
+    ["Pending", "string"],
+    ["Approved", "string"],
+  ]);
+  assert.equal(chip(tree, "All").props.selected, true);
+  chip(tree, "Approved").props.onPress();
+  tree = screen.render();
+  assert.equal(chip(tree, "Approved").props.selected, true);
+  assert.equal(chip(tree, "All").props.selected, false);
+  assert.deepEqual(badges(), [["Approved", "string"]]);
+  assert.equal(labels().filter((l) => l === "View details").length, 1);
+  button(tree, "View details").props.onPress();
+  assert.deepEqual(screen.state.navigations[0], {
+    pathname: "/(tenant)/application/[id]",
+    params: { id: OTHER },
+  });
+  chip(tree, "Rejected").props.onPress();
+  tree = screen.render();
+  assert.match(textOf(tree), /No rejected applications/);
+});
+test("empty lists and missing application details render friendly states", () => {
+  const service = {};
+  for (const [props, text] of [
+    [{ mode: "tenant" }, /applications will appear here/],
+    [{ mode: "landlord" }, /No applications for your properties yet/],
+    [{ mode: "tenant", applicationId: APPLICATION }, /could not be found/],
+    [{ mode: "landlord", applicationId: "not-a-uuid" }, /could not be found/],
+  ])
+    assert.match(
+      textOf(listScreen({ rows: [], userId: TENANT, props, service }).render()),
+      text,
+    );
+});
 test("owner screen requires confirmation, suppresses double taps and hides decided actions", async () => {
   const runtime = hookRuntime();
   const f = fixture({ authId: OWNER, applications: [application()] });
@@ -815,7 +1196,11 @@ test("owner screen requires confirmation, suppresses double taps and hides decid
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "expo-router": {
         useFocusEffect: runtime.useFocusEffect,
-        router: { canGoBack: () => true, back: () => navigations.push("back") },
+        router: {
+          canGoBack: () => true,
+          back: () => navigations.push("back"),
+          push: (value) => navigations.push(value),
+        },
       },
       "../auth/useAuth": { useAuth: () => ({ user: { id: OWNER } }) },
       "../hooks/use-applications": {
@@ -837,7 +1222,12 @@ test("owner screen requires confirmation, suppresses double taps and hides decid
           decisions.push([id, "rejected"]);
           return Promise.resolve();
         },
+        cancelApplication: () => assert.fail("landlord cancelled"),
       },
+      "../services/tenant-discovery.service": {
+        rentLabel: (value) => `P${value}`,
+      },
+      "./ui": uiMock,
     },
   );
   const render = () =>
@@ -847,7 +1237,13 @@ test("owner screen requires confirmation, suppresses double taps and hides decid
   button(tree, "Approve").props.onPress();
   tree = render();
   assert.equal(decisions.length, 0);
-  button(tree, "Cancel").props.onPress();
+  assert.ok(
+    !nodes(tree).some(
+      (node) =>
+        node.type === "Pressable" && textOf(node) === "Cancel application",
+    ),
+  );
+  button(tree, "Not now").props.onPress();
   tree = render();
   assert.equal(decisions.length, 0);
   button(tree, "Approve").props.onPress();
@@ -884,10 +1280,15 @@ test("owner screen requires confirmation, suppresses double taps and hides decid
     }),
   );
 });
-test("Apply screen selects a room, trims through the service, guards double taps and navigates on success", async () => {
+function applyScreen(userId, options = {}) {
   const runtime = hookRuntime(),
-    f = fixture();
-  const fetched = { ...property(), image: null, rooms: [room()] };
+    f = fixture({ authId: userId, ...options });
+  const fetched = {
+    ...property(),
+    security_deposit: 3000,
+    image: null,
+    rooms: [room()],
+  };
   const navigations = [];
   const { default: ApplyScreen } = load("app/(tenant)/property/apply.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -904,7 +1305,7 @@ test("Apply screen selects a room, trims through the service, guards double taps
         back() {},
       },
     },
-    "../../../src/auth/useAuth": { useAuth: () => ({ user: { id: TENANT } }) },
+    "../../../src/auth/useAuth": { useAuth: () => ({ user: { id: userId } }) },
     "../../../src/components/application-list": { applicationStyles: {} },
     "../../../src/services/application.service": f.service,
     "../../../src/services/tenant-discovery.service": {
@@ -913,11 +1314,86 @@ test("Apply screen selects a room, trims through the service, guards double taps
       rentLabel: (value) => String(value),
     },
   });
+  return { runtime, f, navigations, ApplyScreen };
+}
+test("opening the Apply route for your own property shows a message and no way to submit", async () => {
+  const { runtime, f, navigations, ApplyScreen } = applyScreen(OWNER);
+  runtime.render(ApplyScreen);
+  await flush();
+  runtime.render(ApplyScreen);
+  await flush();
+  const tree = runtime.render(ApplyScreen);
+  assert.match(textOf(tree), /You cannot apply to your own property\./);
+  const labels = nodes(tree)
+    .filter((node) => node.type === "Pressable")
+    .map(textOf);
+  assert.deepEqual(labels, ["Back"]);
+  assert.ok(!nodes(tree).some((node) => node.type === "TextInput"));
+  assert.equal(f.inserts, 0);
+  assert.equal(navigations.length, 0);
+});
+async function applyWithRoomSelected(options) {
+  const { runtime, f, navigations, ApplyScreen } = applyScreen(TENANT, options);
   runtime.render(ApplyScreen);
   await flush();
   runtime.render(ApplyScreen);
   await flush();
   let tree = runtime.render(ApplyScreen);
+  nodes(tree)
+    .find(
+      (node) => node.type === "Pressable" && textOf(node).includes("Room One"),
+    )
+    .props.onPress();
+  runtime.render(ApplyScreen);
+  await flush();
+  tree = runtime.render(ApplyScreen);
+  const labels = nodes(tree)
+    .filter((node) => node.type === "Pressable")
+    .map(textOf);
+  return { tree, labels, f, navigations };
+}
+for (const [status, wording] of [
+  ["approved", "You already have an approved application for this room."],
+  ["pending", "You already have a pending application for this room."],
+])
+  test(`existing ${status} application is an intentional state with View My Applications, not a retry`, async () => {
+    const { tree, labels, f, navigations } = await applyWithRoomSelected({
+      applications: [application({ status })],
+    });
+    assert.ok(textOf(tree).includes(wording));
+    assert.ok(!labels.includes("Retry check"));
+    assert.ok(!labels.includes("Review Application"));
+    assert.ok(!labels.includes("Submit Application"));
+    assert.equal(labels.filter((l) => l === "View My Applications").length, 1);
+    button(tree, "View My Applications").props.onPress();
+    assert.deepEqual(navigations, ["/(tenant)/(tabs)/applications"]);
+    assert.equal(f.inserts, 0);
+  });
+test("Retry check appears only when the duplicate check itself failed", async () => {
+  const failed = await applyWithRoomSelected({
+    fail: (c) => c.table === "applications",
+  });
+  assert.match(
+    textOf(failed.tree),
+    /Unable to check your existing applications/,
+  );
+  assert.ok(failed.labels.includes("Retry check"));
+  assert.doesNotMatch(textOf(failed.tree), /You already have/);
+  assert.equal(button(failed.tree, "Review Application").props.disabled, true);
+  const clear = await applyWithRoomSelected({});
+  assert.ok(!clear.labels.includes("Retry check"));
+  assert.equal(button(clear.tree, "Review Application").props.disabled, false);
+});
+test("Apply screen requires a room and a review step, guards double taps and navigates on success", async () => {
+  const { runtime, f, navigations, ApplyScreen } = applyScreen(TENANT);
+  runtime.render(ApplyScreen);
+  await flush();
+  runtime.render(ApplyScreen);
+  await flush();
+  let tree = runtime.render(ApplyScreen);
+  // No room selected yet: there is nothing to review or submit.
+  assert.equal(button(tree, "Review Application").props.disabled, true);
+  assert.doesNotMatch(textOf(tree), /Property inquiry/);
   const roomOption = nodes(tree).find(
     (node) => node.type === "Pressable" && textOf(node).includes("Room One"),
   );
@@ -929,6 +1405,18 @@ test("Apply screen selects a room, trims through the service, guards double taps
     .find((node) => node.type === "TextInput")
     .props.onChangeText("  Hello  ");
   tree = runtime.render(ApplyScreen);
+  assert.equal(button(tree, "Review Application").props.disabled, false);
+  button(tree, "Review Application").props.onPress();
+  tree = runtime.render(ApplyScreen);
+  assert.equal(f.inserts, 0);
+  for (const expected of [
+    /Property: Test Residence/,
+    /Room: Room One/,
+    /Capacity: 2 · Available slots: 1/,
+    /Security deposit: ₱/,
+    /Message: Hello/,
+  ])
+    assert.match(textOf(tree), expected);
   assert.equal(button(tree, "Submit Application").props.disabled, false);
   button(tree, "Submit Application").props.onPress();
   button(tree, "Submit Application").props.onPress();

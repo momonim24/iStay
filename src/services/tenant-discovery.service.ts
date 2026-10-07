@@ -18,6 +18,7 @@ export type TenantPhoto = {
 export type TenantAmenity = { id: number; name: string; icon: string | null };
 export type TenantProperty = {
   id: string;
+  owner_id: string;
   name: string;
   description: string | null;
   property_type: string;
@@ -85,7 +86,7 @@ export function normalizeFilters(filters: DiscoveryFilters) {
     max,
   };
 }
-const fields = `id,name,description,property_type,address,barangay,city,province,monthly_rent,security_deposit,electricity_included,water_included,internet_included,verified,status,created_at,
+const fields = `id,owner_id,name,description,property_type,address,barangay,city,province,monthly_rent,security_deposit,electricity_included,water_included,internet_included,verified,status,created_at,
   rooms(id,name,description,monthly_rent,capacity,available_slots,available),
   property_images(id,image_url,is_cover,sort_order),property_amenities(amenities(id,name,icon))`;
 function publicQuery() {

@@ -171,7 +171,7 @@ export default function AddReviewScreen() {
       );
       // Remove the completed form stack before replacing with Your Listings.
       if (router.canDismiss()) router.dismissAll();
-      router.replace("/(owner)/properties");
+      router.replace("/(owner)/(tabs)/properties");
     }
   };
 

@@ -1,6 +1,8 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
+import { rememberFavorite, takeFavorite } from "../auth/auth-intent";
 import { useAuth } from "../auth/useAuth";
+import { useRequireAuth } from "../auth/use-require-auth";
 import {
   addFavorite,
   fetchFavoriteIds,
@@ -9,6 +11,7 @@ import {
 
 export function useTenantFavorites(onChanged?: () => void) {
   const { user } = useAuth();
+  const { signedIn, requireAuth } = useRequireAuth();
   const [ids, setIds] = useState<string[]>([]),
     [busy, setBusy] = useState<string[]>([]),
     [error, setError] = useState("");
@@ -22,10 +25,18 @@ export function useTenantFavorites(onChanged?: () => void) {
       scope.current = current;
       setIds([]);
       setError("");
-      setReady(false);
-      if (user)
+      setReady(!signedIn);
+      if (signedIn)
         void fetchFavoriteIds()
-          .then((value) => {
+          .then(async (value) => {
+            // Finish a save the user started as a guest. addFavorite is
+            // idempotent, and an already-saved property is left alone.
+            const wanted = takeFavorite();
+            if (wanted && !value.includes(wanted)) {
+              await addFavorite(wanted);
+              value = [...value, wanted];
+              if (current.active) onChanged?.();
+            }
             if (current.active) {
               setIds(value);
               setReady(true);
@@ -40,9 +51,13 @@ export function useTenantFavorites(onChanged?: () => void) {
       return () => {
         current.active = false;
       };
-    }, [user?.id, revision]),
+    }, [user?.id, signedIn, revision]),
   );
   const toggle = async (id: string) => {
+    if (!requireAuth("Log in to save this property.")) {
+      rememberFavorite(id);
+      return;
+    }
     if (!ready || pending.current.has(id)) return;
     const current = scope.current;
     pending.current.add(id);

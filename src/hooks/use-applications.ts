@@ -2,12 +2,15 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import {
+  fetchLandlordApplication,
   fetchLandlordApplications,
+  fetchTenantApplication,
   fetchTenantApplications,
 } from "../services/application.service";
 import type { ApplicationDetails } from "../types/application";
 
-export function useApplications(mode: "tenant" | "landlord") {
+// With an id, loads that single application (as a list of zero or one).
+export function useApplications(mode: "tenant" | "landlord", id?: string) {
   const { user } = useAuth();
   const [applications, setApplications] = useState<ApplicationDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,10 +29,14 @@ export function useApplications(mode: "tenant" | "landlord") {
           active = false;
         };
       }
+      const single =
+        mode === "tenant" ? fetchTenantApplication : fetchLandlordApplication;
       void (
-        mode === "tenant"
-          ? fetchTenantApplications()
-          : fetchLandlordApplications()
+        id !== undefined
+          ? single(id).then((row) => (row ? [row] : []))
+          : mode === "tenant"
+            ? fetchTenantApplications()
+            : fetchLandlordApplications()
       )
         .then((rows) => {
           if (active) setApplications(rows);
@@ -48,7 +55,7 @@ export function useApplications(mode: "tenant" | "landlord") {
       return () => {
         active = false;
       };
-    }, [mode, user?.id, revision]),
+    }, [mode, id, user?.id, revision]),
   );
   return {
     applications,
